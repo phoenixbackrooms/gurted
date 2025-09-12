@@ -81,7 +81,7 @@ jobs:
         path: target
         key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Build CLI binary
+    - name: Build CLI binary (gurty)
       working-directory: protocol/cli
       run: cargo build --release --target ${{ matrix.target }}
 
@@ -93,7 +93,7 @@ jobs:
       if: matrix.os != 'windows-latest'
       run: |
         mkdir -p artifacts/${{ matrix.name }}
-        cp target/${{ matrix.target }}/release/cli artifacts/${{ matrix.name }}/cli
+        cp target/${{ matrix.target }}/release/gurty artifacts/${{ matrix.name }}/gurty
         cp target/${{ matrix.target }}/release/gurtca artifacts/${{ matrix.name }}/gurtca
         tar -czf ${{ matrix.name }}.tar.gz -C artifacts ${{ matrix.name }}
 
@@ -101,7 +101,7 @@ jobs:
       if: matrix.os == 'windows-latest'
       run: |
         New-Item -ItemType Directory -Force -Path "artifacts\${{ matrix.name }}"
-        Copy-Item "target\${{ matrix.target }}\release\cli.exe" "artifacts\${{ matrix.name }}\cli.exe"
+        Copy-Item "target\${{ matrix.target }}\release\gurty.exe" "artifacts\${{ matrix.name }}\gurty.exe"
         Copy-Item "target\${{ matrix.target }}\release\gurtca.exe" "artifacts\${{ matrix.name }}\gurtca.exe"
         Compress-Archive -Path "artifacts\${{ matrix.name }}" -DestinationPath "${{ matrix.name }}.zip"
 
