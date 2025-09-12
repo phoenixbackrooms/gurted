@@ -123,10 +123,12 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-            godot-version: "4.4.1"  # Try the stable format with latest action
+            godot-version: "4.4-stable"
+            export-preset: "Linux"  # Fixed preset name
           - os: windows-latest
             platform: windows
-            godot-version: "4.4.1"  # Try the stable format with latest action
+            godot-version: "4.4-stable"
+            export-preset: "Windows Desktop"  # Confirmed preset name
 
     steps:
     - uses: actions/checkout@v4
@@ -138,7 +140,7 @@ jobs:
         path: rust-artifacts
 
     - name: Setup Godot
-      uses: chickensoft-games/setup-godot@v2.3.0  # Updated to latest specific version
+      uses: chickensoft-games/setup-godot@v2.3.0
       with:
         version: ${{ matrix.godot-version }}
         include-templates: true
@@ -168,20 +170,51 @@ jobs:
         cd flumi
         godot --headless --import
 
+    - name: Verify export presets
+      shell: bash
+      run: |
+        cd flumi
+        echo "Available export presets:"
+        if [ -f export_presets.cfg ]; then
+          grep -E '^\[preset\.' export_presets.cfg || echo "No presets found in config"
+        else
+          echo "export_presets.cfg not found"
+        fi
+
     - name: Export Flumi
       shell: bash
       run: |
         cd flumi
         mkdir -p ../flumi-builds/${{ matrix.platform }}
         
+        # Use the correct export preset names and add error handling
         case "${{ matrix.platform }}" in
           windows)
-            godot --headless --export-release "Windows Desktop" ../flumi-builds/${{ matrix.platform }}/Flumi.exe
+            echo "Exporting for Windows..."
+            godot --headless --export-release "${{ matrix.export-preset }}" ../flumi-builds/${{ matrix.platform }}/Flumi.exe --verbose || {
+              echo "Export failed with exit code $?"
+              echo "Trying without --verbose flag..."
+              godot --headless --export-release "${{ matrix.export-preset }}" ../flumi-builds/${{ matrix.platform }}/Flumi.exe
+            }
             ;;
           linux)
-            godot --headless --export-release "Linux/X11" ../flumi-builds/${{ matrix.platform }}/Flumi
+            echo "Exporting for Linux..."
+            godot --headless --export-release "${{ matrix.export-preset }}" ../flumi-builds/${{ matrix.platform }}/Flumi --verbose || {
+              echo "Export failed with exit code $?"
+              echo "Trying without --verbose flag..."
+              godot --headless --export-release "${{ matrix.export-preset }}" ../flumi-builds/${{ matrix.platform }}/Flumi
+            }
             ;;
         esac
+        
+        # Verify the export was successful
+        if [ -f "../flumi-builds/${{ matrix.platform }}/Flumi${{ matrix.platform == 'windows' && '.exe' || '' }}" ]; then
+          echo "Export successful!"
+          ls -la ../flumi-builds/${{ matrix.platform }}/
+        else
+          echo "Export failed - no output file found"
+          exit 1
+        fi
 
     - name: Upload Flumi artifacts
       uses: actions/upload-artifact@v4
