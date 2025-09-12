@@ -29,10 +29,6 @@ jobs:
             target: x86_64-pc-windows-msvc
             platform: windows
             ext: ".exe"
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            platform: macos
-            ext: ""
 
     steps:
     - uses: actions/checkout@v4
@@ -89,9 +85,6 @@ jobs:
           linux)
             cp protocol/gdextension/target/${{ matrix.target }}/release/libgurt_godot.so artifacts/${{ matrix.platform }}/
             ;;
-          macos)
-            cp protocol/gdextension/target/${{ matrix.target }}/release/libgurt_godot.dylib artifacts/${{ matrix.platform }}/
-            ;;
         esac
 
     - name: Upload Rust artifacts
@@ -112,9 +105,6 @@ jobs:
             godot-version: "4.4-stable"
           - os: windows-latest
             platform: windows
-            godot-version: "4.4-stable"
-          - os: macos-latest
-            platform: macos
             godot-version: "4.4-stable"
 
     steps:
@@ -150,9 +140,6 @@ jobs:
           linux)
             cp rust-artifacts/libgurt_godot.so flumi/addons/gurt-protocol/bin/${{ matrix.platform }}/
             ;;
-          macos)
-            cp rust-artifacts/libgurt_godot.dylib flumi/addons/gurt-protocol/bin/${{ matrix.platform }}/
-            ;;
         esac
 
     - name: Import Godot project
@@ -172,9 +159,6 @@ jobs:
             ;;
           linux)
             godot --headless --export-release "Linux/X11" ../flumi-builds/${{ matrix.platform }}/Flumi
-            ;;
-          macos)
-            godot --headless --export-release "macOS" ../flumi-builds/${{ matrix.platform }}/Flumi.app
             ;;
         esac
 
@@ -201,7 +185,7 @@ jobs:
         mkdir -p release-assets
         
         # Package Rust binaries
-        for platform in linux windows macos; do
+        for platform in linux windows; do
           if [ -d "rust-$platform" ]; then
             cd "rust-$platform"
             if [ "$platform" = "windows" ]; then
@@ -214,7 +198,7 @@ jobs:
         done
         
         # Package Flumi builds
-        for platform in linux windows macos; do
+        for platform in linux windows; do
           if [ -d "flumi-$platform" ]; then
             cd "flumi-$platform"
             if [ "$platform" = "windows" ]; then
@@ -254,8 +238,7 @@ jobs:
           
           ### Platform Support
           - Linux (x86_64)
-          - Windows (x86_64) 
-          - macOS (x86_64)
+          - Windows (x86_64)
           
           For documentation and usage instructions, visit [docs.gurted.com](https://docs.gurted.com)
         files: release-assets/*
