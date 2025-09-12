@@ -1,0 +1,142 @@
+name: Build Binaries
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: linux-x86_64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            name: windows-x86_64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            name: macos-x86_64
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Install OpenSSL (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libssl-dev pkg-config
+
+    - name: Install OpenSSL (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        brew install openssl@3
+        echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> $GITHUB_ENV
+        echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig" >> $GITHUB_ENV
+
+    - name: Setup OpenSSL (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
+        vcpkg install openssl:x64-windows-static-md
+
+    - name: Set Windows OpenSSL environment
+      if: matrix.os == 'windows-latest'
+      run: |
+        echo "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md" | Out-File -FilePath $env:GITHUB_ENV -Append
+        echo "OPENSSL_STATIC=1" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache cargo index
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache cargo build
+      uses: actions/cache@v4
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Build CLI binary
+      working-directory: protocol/cli
+      run: cargo build --release --target ${{ matrix.target }}
+
+    - name: Build Gurtca binary
+      working-directory: protocol/gurtca
+      run: cargo build --release --target ${{ matrix.target }}
+
+    - name: Prepare artifacts (Unix)
+      if: matrix.os != 'windows-latest'
+      run: |
+        mkdir -p artifacts/${{ matrix.name }}
+        cp target/${{ matrix.target }}/release/cli artifacts/${{ matrix.name }}/cli
+        cp target/${{ matrix.target }}/release/gurtca artifacts/${{ matrix.name }}/gurtca
+        tar -czf ${{ matrix.name }}.tar.gz -C artifacts ${{ matrix.name }}
+
+    - name: Prepare artifacts (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        New-Item -ItemType Directory -Force -Path "artifacts\${{ matrix.name }}"
+        Copy-Item "target\${{ matrix.target }}\release\cli.exe" "artifacts\${{ matrix.name }}\cli.exe"
+        Copy-Item "target\${{ matrix.target }}\release\gurtca.exe" "artifacts\${{ matrix.name }}\gurtca.exe"
+        Compress-Archive -Path "artifacts\${{ matrix.name }}" -DestinationPath "${{ matrix.name }}.zip"
+
+    - name: Upload artifacts (Unix)
+      if: matrix.os != 'windows-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.name }}
+        path: ${{ matrix.name }}.tar.gz
+
+    - name: Upload artifacts (Windows)
+      if: matrix.os == 'windows-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.name }}
+        path: ${{ matrix.name }}.zip
+
+    - name: Upload release assets (Unix)
+      if: github.event_name == 'release' && matrix.os != 'windows-latest'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ${{ matrix.name }}.tar.gz
+        asset_name: ${{ matrix.name }}.tar.gz
+        asset_content_type: application/gzip
+
+    - name: Upload release assets (Windows)
+      if: github.event_name == 'release' && matrix.os == 'windows-latest'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ${{ matrix.name }}.zip
+        asset_name: ${{ matrix.name }}.zip
+        asset_content_type: application/zip
