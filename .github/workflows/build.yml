@@ -19,6 +19,7 @@ jobs:
     name: Build Rust Components
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false  # This prevents cancellation of other builds when one fails
       matrix:
         include:
           - os: ubuntu-latest
@@ -52,6 +53,25 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y pkg-config libssl-dev
+
+    - name: Install OpenSSL (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        # Install vcpkg and OpenSSL
+        git clone https://github.com/Microsoft/vcpkg.git C:\vcpkg
+        cd C:\vcpkg
+        .\bootstrap-vcpkg.bat
+        .\vcpkg.exe integrate install
+        .\vcpkg.exe install openssl:x64-windows-static-md
+      env:
+        VCPKG_ROOT: C:\vcpkg
+
+    - name: Set OpenSSL environment variables (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: pwsh
+      run: |
+        echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+        echo "OPENSSL_DIR=C:\vcpkg\installed\x64-windows-static-md" >> $env:GITHUB_ENV
 
     - name: Build GurtCA
       run: |
@@ -98,6 +118,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     needs: build-rust
     strategy:
+      fail-fast: false  # This prevents cancellation of other builds when one fails
       matrix:
         include:
           - os: ubuntu-latest
