@@ -123,10 +123,10 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-            godot-version: "4.4-stable"
+            godot-version: "4.4.1"  # Try the stable format with latest action
           - os: windows-latest
             platform: windows
-            godot-version: "4.4-stable"
+            godot-version: "4.4.1"  # Try the stable format with latest action
 
     steps:
     - uses: actions/checkout@v4
@@ -138,7 +138,7 @@ jobs:
         path: rust-artifacts
 
     - name: Setup Godot
-      uses: chickensoft-games/setup-godot@v2
+      uses: chickensoft-games/setup-godot@v2.3.0  # Updated to latest specific version
       with:
         version: ${{ matrix.godot-version }}
         include-templates: true
