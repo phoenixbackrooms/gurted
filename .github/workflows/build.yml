@@ -123,11 +123,11 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-            godot-version: "4.4-stable"
+            godot-version: "4.4.1"
             export-preset: "Linux"  # Fixed preset name
           - os: windows-latest
             platform: windows
-            godot-version: "4.4-stable"
+            godot-version: "4.4.1"
             export-preset: "Windows Desktop"  # Confirmed preset name
 
     steps:
