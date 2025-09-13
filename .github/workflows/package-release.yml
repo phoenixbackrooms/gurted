@@ -115,29 +115,33 @@ jobs:
       if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
       shell: powershell
       run: |
-        if (Test-Path "artifacts/flumi-windows") {
+        if (Test-Path "artifacts\flumi-windows") {
           Write-Output "Building Windows installer..."
-          
-          # Setup directory structure for installer
-          New-Item -ItemType Directory -Path "build-scripts\Windows" -Force
-          Copy-Item "artifacts\flumi-windows\*" "flumi\build-scripts\Windows\" -Force
-          
-          # Create installer output directory
-          New-Item -ItemType Directory -Path "flumi/build-scripts/Windows/installer" -Force
-          
-          # Build installer using your existing .iss file
-          $issPath = Resolve-Path "flumi/build-scripts/flumi-installer.iss"
+
+          # Ensure the path relative to the .iss exists
+          New-Item -ItemType Directory -Path "flumi\build-scripts\Windows" -Force | Out-Null
+
+          # Copy files from artifacts into flumi\build-scripts\Windows (robust enumeration)
+          Get-ChildItem -Path "artifacts\flumi-windows" -File | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination "flumi\build-scripts\Windows" -Force
+          }
+
+          # Ensure installer output dir matches OutputDir=Windows\installer in .iss
+          New-Item -ItemType Directory -Path "flumi\build-scripts\Windows\installer" -Force | Out-Null
+
+          # Compile using .iss (paths resolved relative to flumi/build-scripts)
+          $issPath = Resolve-Path "flumi\build-scripts\flumi-installer.iss"
           & "C:\InnoSetup\ISCC.exe" $issPath.Path
-          
-          # Copy installer to artifacts if it exists
-          if (Test-Path "build-scripts/Windows/installer/Flumi-Setup-*.exe") {
-            Copy-Item "build-scripts/Windows/installer/Flumi-Setup-*.exe" "artifacts/flumi-windows/" -Force
+
+          # Copy installer to artifacts
+          $built = Get-ChildItem "flumi\build-scripts\Windows\installer" -Filter "Flumi-Setup-*.exe" -ErrorAction SilentlyContinue
+          if ($built) {
+            Copy-Item $built.FullName "artifacts\flumi-windows" -Force
             Write-Output "Installer created and copied successfully"
           } else {
             Write-Output "Warning: Installer was not created"
           }
         }
-
     - name: Prepare release assets
       shell: powershell
       run: |
@@ -273,6 +277,7 @@ jobs:
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
 
 
