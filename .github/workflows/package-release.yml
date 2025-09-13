@@ -19,7 +19,7 @@ on:
 jobs:
   package-release:
     name: Package Release
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
 
     steps:
     - uses: actions/checkout@v4
@@ -69,145 +69,175 @@ jobs:
       continue-on-error: true
 
     - name: List downloaded artifacts
+      shell: powershell
       run: |
-        echo "Downloaded artifacts:"
-        find artifacts/ -type f -name "*" | sort
+        Write-Output "Downloaded artifacts:"
+        Get-ChildItem -Path artifacts -Recurse -File | Sort-Object FullName
 
-    - name: Download UPX for Windows compression
+    - name: Download and setup UPX
       if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      shell: powershell
       run: |
-        wget https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip
-        unzip upx-4.2.4-win64.zip
-        chmod +x upx-4.2.4-win64/upx.exe
-
-    - name: Setup Wine for running Windows executables
-      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y wine64
+        Invoke-WebRequest -Uri "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip" -OutFile "upx.zip"
+        Expand-Archive -Path "upx.zip" -DestinationPath "."
 
     - name: Compress Windows Flumi binaries with UPX
       if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      shell: powershell
       run: |
-        if [ -d "artifacts/flumi-windows" ]; then
-          echo "Compressing Windows Flumi binaries..."
-          # Create build-scripts/Windows structure expected by UPX command
-          mkdir -p build-scripts/Windows
-          cp artifacts/flumi-windows/* build-scripts/Windows/
+        if (Test-Path "artifacts/flumi-windows") {
+          Write-Output "Compressing Windows Flumi binaries..."
           
-          # Run UPX compression using Wine
-          wine ./upx-4.2.4-win64/upx.exe --best --ultra-brute build-scripts/Windows/*.exe build-scripts/Windows/*.dll || echo "UPX compression completed with warnings"
+          # Create build-scripts/Windows structure
+          New-Item -ItemType Directory -Path "build-scripts/Windows" -Force
+          Copy-Item "artifacts/flumi-windows/*" "build-scripts/Windows/" -Force
+          
+          # Run UPX compression
+          try {
+            & ".\upx-4.2.4-win64\upx.exe" --best --ultra-brute build-scripts/Windows/*.exe build-scripts/Windows/*.dll
+            Write-Output "UPX compression completed successfully"
+          } catch {
+            Write-Output "UPX compression completed with warnings: $($_.Exception.Message)"
+          }
           
           # Copy compressed files back
-          cp build-scripts/Windows/* artifacts/flumi-windows/
-        fi
+          Copy-Item "build-scripts/Windows/*" "artifacts/flumi-windows/" -Force
+        }
 
-    - name: Setup Inno Setup
+    - name: Download and setup Inno Setup
       if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      shell: powershell
       run: |
-        # Download and setup Inno Setup
-        wget https://jrsoftware.org/download.php/is.exe -O innosetup.exe
-        wine innosetup.exe /VERYSILENT /NORESTART /DIR="$HOME/.wine/drive_c/InnoSetup"
+        Invoke-WebRequest -Uri "https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe" -OutFile "innosetup.exe"
+        Start-Process -FilePath ".\innosetup.exe" -ArgumentList "/VERYSILENT", "/NORESTART", "/DIR=C:\InnoSetup" -Wait
         
     - name: Build Windows installer
       if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      shell: powershell
       run: |
-        if [ -d "artifacts/flumi-windows" ]; then
-          echo "Building Windows installer..."
+        if (Test-Path "artifacts/flumi-windows") {
+          Write-Output "Building Windows installer..."
           
           # Setup directory structure for installer
-          mkdir -p build-scripts/Windows
-          cp artifacts/flumi-windows/* build-scripts/Windows/
-          
-          # Copy the installer script
-          cp flumi/build-scripts/flumi-installer.iss build-scripts/
+          New-Item -ItemType Directory -Path "build-scripts/Windows" -Force
+          Copy-Item "artifacts/flumi-windows/*" "build-scripts/Windows/" -Force
           
           # Create installer output directory
-          mkdir -p build-scripts/Windows/installer
+          New-Item -ItemType Directory -Path "build-scripts/Windows/installer" -Force
           
-          # Build installer using Inno Setup
-          wine "$HOME/.wine/drive_c/InnoSetup/ISCC.exe" build-scripts/flumi-installer.iss || echo "Installer build completed"
+          # Build installer using your existing .iss file
+          $issPath = Resolve-Path "flumi/build-scripts/flumi-installer.iss"
+          & "C:\InnoSetup\ISCC.exe" $issPath.Path
           
-          # Copy installer to artifacts
-          if [ -f "build-scripts/Windows/installer/Flumi-Setup-1.0.2.exe" ]; then
-            cp build-scripts/Windows/installer/Flumi-Setup-*.exe artifacts/flumi-windows/
-          fi
-        fi
+          # Copy installer to artifacts if it exists
+          if (Test-Path "build-scripts/Windows/installer/Flumi-Setup-*.exe") {
+            Copy-Item "build-scripts/Windows/installer/Flumi-Setup-*.exe" "artifacts/flumi-windows/" -Force
+            Write-Output "Installer created and copied successfully"
+          } else {
+            Write-Output "Warning: Installer was not created"
+          }
+        }
 
     - name: Prepare release assets
+      shell: powershell
       run: |
-        mkdir -p release-assets
+        New-Item -ItemType Directory -Path "release-assets" -Force
         
         # Package Rust binaries (GurtCA + Gurty)
-        for platform in linux windows; do
-          mkdir -p "temp-tools-$platform"
+        foreach ($platform in @("linux", "windows")) {
+          $tempDir = "temp-tools-$platform"
+          New-Item -ItemType Directory -Path $tempDir -Force
           
           # Copy GurtCA if available
-          if [ -d "artifacts/gurtca-$platform" ]; then
-            cp artifacts/gurtca-$platform/* "temp-tools-$platform/"
-          fi
+          if (Test-Path "artifacts/gurtca-$platform") {
+            Copy-Item "artifacts/gurtca-$platform/*" $tempDir -Force
+          }
           
           # Copy Gurty if available
-          if [ -d "artifacts/gurty-$platform" ]; then
-            cp artifacts/gurty-$platform/* "temp-tools-$platform/"
-          fi
+          if (Test-Path "artifacts/gurty-$platform") {
+            Copy-Item "artifacts/gurty-$platform/*" $tempDir -Force
+          }
           
           # Package if we have any files
-          if [ "$(ls -A temp-tools-$platform)" ]; then
-            cd "temp-tools-$platform"
-            if [ "$platform" = "windows" ]; then
-              zip -r "../release-assets/gurted-tools-$platform.zip" .
-            else
-              tar -czf "../release-assets/gurted-tools-$platform.tar.gz" .
-            fi
-            cd ..
-          fi
+          $files = Get-ChildItem $tempDir -ErrorAction SilentlyContinue
+          if ($files.Count -gt 0) {
+            if ($platform -eq "windows") {
+              Compress-Archive -Path "$tempDir/*" -DestinationPath "release-assets/gurted-tools-$platform.zip" -Force
+            } else {
+              # For Linux files, we'll use 7zip if available, otherwise skip tar.gz creation on Windows
+              if (Get-Command "7z" -ErrorAction SilentlyContinue) {
+                & "7z" a -ttar "release-assets/gurted-tools-$platform.tar" "$tempDir/*"
+                & "7z" a -tgzip "release-assets/gurted-tools-$platform.tar.gz" "release-assets/gurted-tools-$platform.tar"
+                Remove-Item "release-assets/gurted-tools-$platform.tar" -Force
+              } else {
+                # Fallback to zip for Linux binaries too
+                Compress-Archive -Path "$tempDir/*" -DestinationPath "release-assets/gurted-tools-$platform.zip" -Force
+              }
+            }
+          }
           
-          rm -rf "temp-tools-$platform"
-        done
+          Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
         
         # Package Flumi builds
-        for platform in linux windows; do
-          if [ -d "artifacts/flumi-$platform" ]; then
-            cd "artifacts/flumi-$platform"
+        foreach ($platform in @("linux", "windows")) {
+          if (Test-Path "artifacts/flumi-$platform") {
+            Push-Location "artifacts/flumi-$platform"
             
-            # For Windows, create both compressed binaries package and installer
-            if [ "$platform" = "windows" ]; then
-              # Create compressed binaries package
-              zip -r "../../release-assets/flumi-$platform-binaries.zip" . --exclude="*.exe" # Exclude installer from binaries
+            if ($platform -eq "windows") {
+              # Create compressed binaries package (exclude installer files)
+              $filesToZip = Get-ChildItem -Exclude "Flumi-Setup-*.exe"
+              if ($filesToZip.Count -gt 0) {
+                Compress-Archive -Path $filesToZip -DestinationPath "../../release-assets/flumi-$platform-binaries.zip" -Force
+              }
               
               # Copy installer separately if it exists
-              if ls Flumi-Setup-*.exe 1> /dev/null 2>&1; then
-                cp Flumi-Setup-*.exe "../../release-assets/"
-              fi
-            else
-              tar -czf "../../release-assets/flumi-$platform.tar.gz" .
-            fi
-            cd ../..
-          fi
-        done
+              $installer = Get-ChildItem "Flumi-Setup-*.exe" -ErrorAction SilentlyContinue
+              if ($installer) {
+                Copy-Item $installer "../../release-assets/" -Force
+              }
+            } else {
+              if (Get-Command "7z" -ErrorAction SilentlyContinue) {
+                & "7z" a -ttar "../../release-assets/flumi-$platform.tar" "*"
+                & "7z" a -tgzip "../../release-assets/flumi-$platform.tar.gz" "../../release-assets/flumi-$platform.tar"
+                Remove-Item "../../release-assets/flumi-$platform.tar" -Force
+              } else {
+                Compress-Archive -Path "*" -DestinationPath "../../release-assets/flumi-$platform.zip" -Force
+              }
+            }
+            Pop-Location
+          }
+        }
         
         # Package GDExtension separately for developers
-        for platform in linux windows; do
-          if [ -d "artifacts/gdextension-$platform" ]; then
-            cd "artifacts/gdextension-$platform"
-            if [ "$platform" = "windows" ]; then
-              zip -r "../../release-assets/gdextension-$platform.zip" .
-            else
-              tar -czf "../../release-assets/gdextension-$platform.tar.gz" .
-            fi
-            cd ../..
-          fi
-        done
+        foreach ($platform in @("linux", "windows")) {
+          if (Test-Path "artifacts/gdextension-$platform") {
+            Push-Location "artifacts/gdextension-$platform"
+            if ($platform -eq "windows") {
+              Compress-Archive -Path "*" -DestinationPath "../../release-assets/gdextension-$platform.zip" -Force
+            } else {
+              if (Get-Command "7z" -ErrorAction SilentlyContinue) {
+                & "7z" a -ttar "../../release-assets/gdextension-$platform.tar" "*"
+                & "7z" a -tgzip "../../release-assets/gdextension-$platform.tar.gz" "../../release-assets/gdextension-$platform.tar"
+                Remove-Item "../../release-assets/gdextension-$platform.tar" -Force
+              } else {
+                Compress-Archive -Path "*" -DestinationPath "../../release-assets/gdextension-$platform.zip" -Force
+              }
+            }
+            Pop-Location
+          }
+        }
 
     - name: Get release tag
       id: get_tag
+      shell: powershell
       run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-        else
-          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-        fi
+        if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+          echo "tag=${{ github.event.inputs.tag }}" >> $env:GITHUB_OUTPUT
+        } else {
+          $tag = "${{ github.ref }}" -replace "refs/tags/", ""
+          echo "tag=$tag" >> $env:GITHUB_OUTPUT
+        }
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
@@ -224,11 +254,11 @@ jobs:
           - **GDExtension**: Godot extension for GURT protocol integration
           
           ### Downloads
-          - `gurted-tools-*.zip/tar.gz`: Contains GurtCA and Gurty binaries
-          - `flumi-linux.tar.gz`: Contains the Flumi wayfinder application for Linux
+          - `gurted-tools-*.zip`: Contains GurtCA and Gurty binaries
+          - `flumi-linux.*`: Contains the Flumi wayfinder application for Linux
           - `flumi-windows-binaries.zip`: Contains compressed Flumi binaries for Windows
           - `Flumi-Setup-*.exe`: Windows installer for Flumi (recommended for Windows users)
-          - `gdextension-*.zip/tar.gz`: Contains the GDExtension library for developers
+          - `gdextension-*.zip`: Contains the GDExtension library for developers
           
           ### Platform Support
           - Linux (x86_64)
