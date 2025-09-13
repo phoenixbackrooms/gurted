@@ -94,7 +94,7 @@ jobs:
           
           # Run UPX compression
           try {
-            & ".\upx-4.2.4-win64\upx.exe" --best --ultra-brute build-scripts/Windows/*.exe build-scripts/Windows/*.dll
+            & ".\upx-4.2.4-win64\upx.exe" --lzma --best build-scripts/Windows/*.exe build-scripts/Windows/*.dll
             Write-Output "UPX compression completed successfully"
           } catch {
             Write-Output "UPX compression completed with warnings: $($_.Exception.Message)"
@@ -273,3 +273,4 @@ jobs:
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
