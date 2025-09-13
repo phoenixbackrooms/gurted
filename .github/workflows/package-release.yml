@@ -1,0 +1,171 @@
+name: Package Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag'
+        required: true
+        default: 'v0.1.0'
+      download_artifacts:
+        description: 'Download latest artifacts from main branch'
+        required: false
+        default: 'true'
+        type: boolean
+
+jobs:
+  package-release:
+    name: Package Release
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download GurtCA artifacts
+      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      uses: dawidd6/action-download-artifact@v6
+      with:
+        workflow: build-gurtca.yml
+        name_is_regexp: true
+        name: gurtca-.*
+        path: artifacts/
+        if_no_artifact_found: warn
+      continue-on-error: true
+
+    - name: Download Gurty artifacts
+      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      uses: dawidd6/action-download-artifact@v6
+      with:
+        workflow: build-gurty.yml
+        name_is_regexp: true
+        name: gurty-.*
+        path: artifacts/
+        if_no_artifact_found: warn
+      continue-on-error: true
+
+    - name: Download GDExtension artifacts
+      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      uses: dawidd6/action-download-artifact@v6
+      with:
+        workflow: build-gdextension.yml
+        name_is_regexp: true
+        name: gdextension-.*
+        path: artifacts/
+        if_no_artifact_found: warn
+      continue-on-error: true
+
+    - name: Download Flumi artifacts
+      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      uses: dawidd6/action-download-artifact@v6
+      with:
+        workflow: build-flumi.yml
+        name_is_regexp: true
+        name: flumi-.*
+        path: artifacts/
+        if_no_artifact_found: warn
+      continue-on-error: true
+
+    - name: List downloaded artifacts
+      run: |
+        echo "Downloaded artifacts:"
+        find artifacts/ -type f -name "*" | sort
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p release-assets
+        
+        # Package Rust binaries (GurtCA + Gurty)
+        for platform in linux windows; do
+          mkdir -p "temp-tools-$platform"
+          
+          # Copy GurtCA if available
+          if [ -d "artifacts/gurtca-$platform" ]; then
+            cp artifacts/gurtca-$platform/* "temp-tools-$platform/"
+          fi
+          
+          # Copy Gurty if available
+          if [ -d "artifacts/gurty-$platform" ]; then
+            cp artifacts/gurty-$platform/* "temp-tools-$platform/"
+          fi
+          
+          # Package if we have any files
+          if [ "$(ls -A temp-tools-$platform)" ]; then
+            cd "temp-tools-$platform"
+            if [ "$platform" = "windows" ]; then
+              zip -r "../release-assets/gurted-tools-$platform.zip" .
+            else
+              tar -czf "../release-assets/gurted-tools-$platform.tar.gz" .
+            fi
+            cd ..
+          fi
+          
+          rm -rf "temp-tools-$platform"
+        done
+        
+        # Package Flumi builds
+        for platform in linux windows; do
+          if [ -d "artifacts/flumi-$platform" ]; then
+            cd "artifacts/flumi-$platform"
+            if [ "$platform" = "windows" ]; then
+              zip -r "../../release-assets/flumi-$platform.zip" .
+            else
+              tar -czf "../../release-assets/flumi-$platform.tar.gz" .
+            fi
+            cd ../..
+          fi
+        done
+        
+        # Package GDExtension separately for developers
+        for platform in linux windows; do
+          if [ -d "artifacts/gdextension-$platform" ]; then
+            cd "artifacts/gdextension-$platform"
+            if [ "$platform" = "windows" ]; then
+              zip -r "../../release-assets/gdextension-$platform.zip" .
+            else
+              tar -czf "../../release-assets/gdextension-$platform.tar.gz" .
+            fi
+            cd ../..
+          fi
+        done
+
+    - name: Get release tag
+      id: get_tag
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+        else
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.get_tag.outputs.tag }}
+        name: Gurted ${{ steps.get_tag.outputs.tag }}
+        body: |
+          ## Gurted Release ${{ steps.get_tag.outputs.tag }}
+          
+          This release includes:
+          - **GurtCA**: Certificate Authority for TLS certificates
+          - **Gurty**: CLI tool for managing GURT protocol servers  
+          - **Flumi**: The official wayfinder (browser) for the GURT ecosystem
+          - **GDExtension**: Godot extension for GURT protocol integration
+          
+          ### Downloads
+          - `gurted-tools-*.zip/tar.gz`: Contains GurtCA and Gurty binaries
+          - `flumi-*.zip/tar.gz`: Contains the Flumi wayfinder application
+          - `gdextension-*.zip/tar.gz`: Contains the GDExtension library for developers
+          
+          ### Platform Support
+          - Linux (x86_64)
+          - Windows (x86_64)
+          
+          For documentation and usage instructions, visit [docs.gurted.com](https://docs.gurted.com)
+        files: release-assets/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

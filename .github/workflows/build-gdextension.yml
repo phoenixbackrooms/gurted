@@ -1,0 +1,78 @@
+name: Build GDExtension
+
+on:
+  push:
+    paths:
+      - 'protocol/gdextension/**'
+      - 'protocol/library/**'
+      - '.github/workflows/build-gdextension.yml'
+  pull_request:
+    paths:
+      - 'protocol/gdextension/**'
+      - 'protocol/library/**'
+      - '.github/workflows/build-gdextension.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-gdextension:
+    name: Build GDExtension
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            platform: linux
+            lib_name: libgurt_godot.so
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            platform: windows
+            lib_name: gurt_godot.dll
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Cache cargo dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          protocol/target/
+        key: ${{ runner.os }}-gdextension-${{ hashFiles('protocol/gdextension/Cargo.lock', 'protocol/library/Cargo.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-gdextension-
+          ${{ runner.os }}-cargo-
+
+    - name: Build GDExtension
+      run: |
+        cd protocol/gdextension
+        cargo build --release --target ${{ matrix.target }}
+
+    - name: Prepare artifacts
+      shell: bash
+      run: |
+        mkdir -p artifacts/${{ matrix.platform }}
+        cp protocol/gdextension/target/${{ matrix.target }}/release/${{ matrix.lib_name }} artifacts/${{ matrix.platform }}/
+        
+        # Also copy the extension configuration files
+        cp protocol/gdextension/gurt_godot.gdextension artifacts/${{ matrix.platform }}/
+        cp protocol/gdextension/plugin.cfg artifacts/${{ matrix.platform }}/
+        cp protocol/gdextension/plugin.gd artifacts/${{ matrix.platform }}/
+
+    - name: Upload GDExtension artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: gdextension-${{ matrix.platform }}
+        path: artifacts/${{ matrix.platform }}
+        retention-days: 30

@@ -1,0 +1,149 @@
+name: Build Flumi
+
+on:
+  push:
+    paths:
+      - 'flumi/**'
+      - '.github/workflows/build-flumi.yml'
+  pull_request:
+    paths:
+      - 'flumi/**'
+      - '.github/workflows/build-flumi.yml'
+  workflow_dispatch:
+    inputs:
+      use_latest_gdextension:
+        description: 'Use latest GDExtension artifacts from main branch'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  build-flumi:
+    name: Build Flumi
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            godot-version: "4.4.1"
+            export-preset: "Linux"
+          - os: windows-latest
+            platform: windows
+            godot-version: "4.4.1"
+            export-preset: "Windows Desktop"
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download GDExtension artifacts (if available)
+      if: github.event.inputs.use_latest_gdextension == 'true'
+      uses: dawidd6/action-download-artifact@v6
+      with:
+        workflow: build-gdextension.yml
+        name: gdextension-${{ matrix.platform }}
+        path: gdextension-artifacts
+        if_no_artifact_found: warn
+      continue-on-error: true
+
+    - name: Cache Godot installation
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.local/share/godot
+          ~/AppData/Roaming/Godot
+        key: ${{ runner.os }}-godot-${{ matrix.godot-version }}
+
+    - name: Setup Godot
+      uses: chickensoft-games/setup-godot@v2.3.0
+      with:
+        version: ${{ matrix.godot-version }}
+        include-templates: true
+
+    - name: Prepare GDExtension addon (if artifacts available)
+      if: hashFiles('gdextension-artifacts/*') != ''
+      shell: bash
+      run: |
+        mkdir -p flumi/addons/gurt-protocol/bin/${{ matrix.platform }}
+        
+        # Copy GDExtension files
+        cp gdextension-artifacts/gurt_godot.gdextension flumi/addons/gurt-protocol/
+        cp gdextension-artifacts/plugin.cfg flumi/addons/gurt-protocol/
+        cp gdextension-artifacts/plugin.gd flumi/addons/gurt-protocol/
+        
+        # Copy the built library
+        case "${{ matrix.platform }}" in
+          windows)
+            cp gdextension-artifacts/gurt_godot.dll flumi/addons/gurt-protocol/bin/${{ matrix.platform }}/
+            ;;
+          linux)
+            cp gdextension-artifacts/libgurt_godot.so flumi/addons/gurt-protocol/bin/${{ matrix.platform }}/
+            ;;
+        esac
+
+    - name: Cache Godot import files
+      uses: actions/cache@v4
+      with:
+        path: |
+          flumi/.godot/
+        key: ${{ runner.os }}-flumi-import-${{ hashFiles('flumi/**/*.tscn', 'flumi/**/*.tres', 'flumi/**/*.gd') }}
+        restore-keys: |
+          ${{ runner.os }}-flumi-import-
+
+    - name: Import Godot project
+      run: |
+        cd flumi
+        godot --headless --import
+
+    - name: Verify export presets
+      shell: bash
+      run: |
+        cd flumi
+        echo "Available export presets:"
+        if [ -f export_presets.cfg ]; then
+          grep -E '^\[preset\.' export_presets.cfg || echo "No presets found in config"
+        else
+          echo "export_presets.cfg not found"
+        fi
+
+    - name: Export Flumi
+      shell: bash
+      run: |
+        cd flumi
+        mkdir -p ../flumi-builds/${{ matrix.platform }}
+        
+        case "${{ matrix.platform }}" in
+          windows)
+            echo "Exporting for Windows..."
+            godot --headless --export-release "${{ matrix.export-preset }}" ../flumi-builds/${{ matrix.platform }}/Flumi.exe --verbose || {
+              echo "Export failed with exit code $?"
+              echo "Trying without --verbose flag..."
+              godot --headless --export-release "${{ matrix.export-preset }}" ../flumi-builds/${{ matrix.platform }}/Flumi.exe
+            }
+            ;;
+          linux)
+            echo "Exporting for Linux..."
+            godot --headless --export-release "${{ matrix.export-preset }}" ../flumi-builds/${{ matrix.platform }}/Flumi --verbose || {
+              echo "Export failed with exit code $?"
+              echo "Trying without --verbose flag..."
+              godot --headless --export-release "${{ matrix.export-preset }}" ../flumi-builds/${{ matrix.platform }}/Flumi
+            }
+            ;;
+        esac
+        
+        # Verify the export was successful
+        if [ -f "../flumi-builds/${{ matrix.platform }}/Flumi${{ matrix.platform == 'windows' && '.exe' || '' }}" ]; then
+          echo "Export successful!"
+          ls -la ../flumi-builds/${{ matrix.platform }}/
+        else
+          echo "Export failed - no output file found"
+          exit 1
+        fi
+
+    - name: Upload Flumi artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: flumi-${{ matrix.platform }}
+        path: flumi-builds/${{ matrix.platform }}
+        retention-days: 30
