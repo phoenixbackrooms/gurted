@@ -119,8 +119,8 @@ jobs:
           Write-Output "Building Windows installer..."
           
           # Setup directory structure for installer
-          New-Item -ItemType Directory -Path "build-scripts/Windows" -Force
-          Copy-Item "artifacts/flumi-windows/*" "flumi/build-scripts/Windows/" -Force
+          New-Item -ItemType Directory -Path "build-scripts\Windows" -Force
+          Copy-Item "artifacts\flumi-windows\*" "flumi\build-scripts\Windows\" -Force
           
           # Create installer output directory
           New-Item -ItemType Directory -Path "flumi/build-scripts/Windows/installer" -Force
@@ -273,6 +273,7 @@ jobs:
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
 
 
