@@ -189,11 +189,6 @@ jobs:
             Push-Location "artifacts/flumi-$platform"
             
             if ($platform -eq "windows") {
-              # Create compressed binaries package (exclude installer files)
-              $filesToZip = Get-ChildItem -Exclude "Flumi-Setup-*.exe"
-              if ($filesToZip.Count -gt 0) {
-                Compress-Archive -Path $filesToZip -DestinationPath "../../release-assets/flumi-$platform-binaries.zip" -Force
-              }
               
               # Copy installer separately if it exists
               $installer = Get-ChildItem "Flumi-Setup-*.exe" -ErrorAction SilentlyContinue
@@ -213,24 +208,6 @@ jobs:
           }
         }
         
-        # Package GDExtension separately for developers
-        foreach ($platform in @("linux", "windows")) {
-          if (Test-Path "artifacts/gdextension-$platform") {
-            Push-Location "artifacts/gdextension-$platform"
-            if ($platform -eq "windows") {
-              Compress-Archive -Path "*" -DestinationPath "../../release-assets/gdextension-$platform.zip" -Force
-            } else {
-              if (Get-Command "7z" -ErrorAction SilentlyContinue) {
-                & "7z" a -ttar "../../release-assets/gdextension-$platform.tar" "*"
-                & "7z" a -tgzip "../../release-assets/gdextension-$platform.tar.gz" "../../release-assets/gdextension-$platform.tar"
-                Remove-Item "../../release-assets/gdextension-$platform.tar" -Force
-              } else {
-                Compress-Archive -Path "*" -DestinationPath "../../release-assets/gdextension-$platform.zip" -Force
-              }
-            }
-            Pop-Location
-          }
-        }
 
     - name: Get release tag
       id: get_tag
@@ -250,26 +227,21 @@ jobs:
         name: Gurted ${{ steps.get_tag.outputs.tag }}
         body: |
           ## Gurted Release ${{ steps.get_tag.outputs.tag }}
-          
+
+          ### NOTICE: THESE BUILDS ARE NOT OFFICIAL AND MAY CONTAIN DIFFIRENCES FROM UPSTREAM.
           This release includes:
           - **GurtCA**: Certificate Authority for TLS certificates
           - **Gurty**: CLI tool for managing GURT protocol servers  
-          - **Flumi**: The official wayfinder (browser) for the GURT ecosystem
-          - **GDExtension**: Godot extension for GURT protocol integration
+          - **Flumi**: The official browser for the GURT ecosystem
           
           ### Downloads
           - `gurted-tools-*.zip`: Contains GurtCA and Gurty binaries
           - `flumi-linux.*`: Contains the Flumi wayfinder application for Linux
-          - `flumi-windows-binaries.zip`: Contains compressed Flumi binaries for Windows
           - `Flumi-Setup-*.exe`: Windows installer for Flumi (recommended for Windows users)
-          - `gdextension-*.zip`: Contains the GDExtension library for developers
           
           ### Platform Support
           - Linux (x86_64)
           - Windows (x86_64)
-          
-          ### Windows Users
-          For the best experience on Windows, download and run the `Flumi-Setup-*.exe` installer.
           
           For documentation and usage instructions, visit [docs.gurted.com](https://docs.gurted.com)
         files: release-assets/*
@@ -277,6 +249,7 @@ jobs:
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
 
 
