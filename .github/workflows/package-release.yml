@@ -120,10 +120,10 @@ jobs:
           
           # Setup directory structure for installer
           New-Item -ItemType Directory -Path "build-scripts/Windows" -Force
-          Copy-Item "artifacts/flumi-windows/*" "build-scripts/Windows/" -Force
+          Copy-Item "artifacts/flumi-windows/*" "flumi/build-scripts/Windows/" -Force
           
           # Create installer output directory
-          New-Item -ItemType Directory -Path "build-scripts/Windows/installer" -Force
+          New-Item -ItemType Directory -Path "flumi/build-scripts/Windows/installer" -Force
           
           # Build installer using your existing .iss file
           $issPath = Resolve-Path "flumi/build-scripts/flumi-installer.iss"
@@ -273,5 +273,6 @@ jobs:
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
 
