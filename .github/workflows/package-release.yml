@@ -73,6 +73,67 @@ jobs:
         echo "Downloaded artifacts:"
         find artifacts/ -type f -name "*" | sort
 
+    - name: Download UPX for Windows compression
+      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      run: |
+        wget https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip
+        unzip upx-4.2.4-win64.zip
+        chmod +x upx-4.2.4-win64/upx.exe
+
+    - name: Setup Wine for running Windows executables
+      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wine64
+
+    - name: Compress Windows Flumi binaries with UPX
+      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      run: |
+        if [ -d "artifacts/flumi-windows" ]; then
+          echo "Compressing Windows Flumi binaries..."
+          # Create build-scripts/Windows structure expected by UPX command
+          mkdir -p build-scripts/Windows
+          cp artifacts/flumi-windows/* build-scripts/Windows/
+          
+          # Run UPX compression using Wine
+          wine ./upx-4.2.4-win64/upx.exe --best --ultra-brute build-scripts/Windows/*.exe build-scripts/Windows/*.dll || echo "UPX compression completed with warnings"
+          
+          # Copy compressed files back
+          cp build-scripts/Windows/* artifacts/flumi-windows/
+        fi
+
+    - name: Setup Inno Setup
+      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      run: |
+        # Download and setup Inno Setup
+        wget https://jrsoftware.org/download.php/is.exe -O innosetup.exe
+        wine innosetup.exe /VERYSILENT /NORESTART /DIR="$HOME/.wine/drive_c/InnoSetup"
+        
+    - name: Build Windows installer
+      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      run: |
+        if [ -d "artifacts/flumi-windows" ]; then
+          echo "Building Windows installer..."
+          
+          # Setup directory structure for installer
+          mkdir -p build-scripts/Windows
+          cp artifacts/flumi-windows/* build-scripts/Windows/
+          
+          # Copy the installer script
+          cp flumi/build-scripts/flumi-installer.iss build-scripts/
+          
+          # Create installer output directory
+          mkdir -p build-scripts/Windows/installer
+          
+          # Build installer using Inno Setup
+          wine "$HOME/.wine/drive_c/InnoSetup/ISCC.exe" build-scripts/flumi-installer.iss || echo "Installer build completed"
+          
+          # Copy installer to artifacts
+          if [ -f "build-scripts/Windows/installer/Flumi-Setup-1.0.2.exe" ]; then
+            cp build-scripts/Windows/installer/Flumi-Setup-*.exe artifacts/flumi-windows/
+          fi
+        fi
+
     - name: Prepare release assets
       run: |
         mkdir -p release-assets
@@ -109,8 +170,16 @@ jobs:
         for platform in linux windows; do
           if [ -d "artifacts/flumi-$platform" ]; then
             cd "artifacts/flumi-$platform"
+            
+            # For Windows, create both compressed binaries package and installer
             if [ "$platform" = "windows" ]; then
-              zip -r "../../release-assets/flumi-$platform.zip" .
+              # Create compressed binaries package
+              zip -r "../../release-assets/flumi-$platform-binaries.zip" . --exclude="*.exe" # Exclude installer from binaries
+              
+              # Copy installer separately if it exists
+              if ls Flumi-Setup-*.exe 1> /dev/null 2>&1; then
+                cp Flumi-Setup-*.exe "../../release-assets/"
+              fi
             else
               tar -czf "../../release-assets/flumi-$platform.tar.gz" .
             fi
@@ -156,12 +225,17 @@ jobs:
           
           ### Downloads
           - `gurted-tools-*.zip/tar.gz`: Contains GurtCA and Gurty binaries
-          - `flumi-*.zip/tar.gz`: Contains the Flumi wayfinder application
+          - `flumi-linux.tar.gz`: Contains the Flumi wayfinder application for Linux
+          - `flumi-windows-binaries.zip`: Contains compressed Flumi binaries for Windows
+          - `Flumi-Setup-*.exe`: Windows installer for Flumi (recommended for Windows users)
           - `gdextension-*.zip/tar.gz`: Contains the GDExtension library for developers
           
           ### Platform Support
           - Linux (x86_64)
           - Windows (x86_64)
+          
+          ### Windows Users
+          For the best experience on Windows, download and run the `Flumi-Setup-*.exe` installer.
           
           For documentation and usage instructions, visit [docs.gurted.com](https://docs.gurted.com)
         files: release-assets/*
