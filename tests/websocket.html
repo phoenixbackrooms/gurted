@@ -79,7 +79,7 @@
 			end)
 
 			socket:on('error', function(event)
-				addLog('🚨 Error: ' .. (event.message or 'Unknown error'))
+				addLog('🚨 Error: ' .. event.message)
 				updateStatus('Error', 'disconnected')
 				connected = false
 			end)

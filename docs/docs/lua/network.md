@@ -54,33 +54,23 @@ ws:on('open', function()
     ws:send('Hello server!')
 end)
 
-ws:on('message', function(data)
-    trace.log('Received: ' .. data)
+ws:on('message', function(message)
+    trace.log('Received message: ' .. message.data)
 end)
 
-ws:on('close', function(code, reason)
-    trace.log('WebSocket closed: ' .. code .. ' - ' .. reason)
+ws:on('close', function()
+    trace.log('WebSocket closed.')
 end)
 
 ws:on('error', function(error)
-    trace.log('WebSocket error: ' .. error)
+    trace.log('WebSocket error: ' .. error.message)
 end)
 
 ws:send('Hello from client!')
 ws:send(JSON.stringify({ type = 'chat', message = 'Hello!' }))
 
 ws:close()
-
-if ws.readyState == WebSocket.OPEN then
-    ws:send('Connected message')
-end
 ```
-
-**WebSocket States:**
-- `WebSocket.CONNECTING` (0) - Connection in progress
-- `WebSocket.OPEN` (1) - Connection established
-- `WebSocket.CLOSING` (2) - Connection closing
-- `WebSocket.CLOSED` (3) - Connection closed
 
 ## URL API
 
