@@ -1,6 +1,10 @@
 class_name Main
 extends Control
 
+static var gurt_clients: Dictionary = {}
+static var client_last_used: Dictionary = {}
+static var client_timeout_ms: int = 30000
+
 @onready var website_container: Control = %WebsiteContainer
 @onready var tab_container: TabManager = $VBoxContainer/TabContainer
 @onready var search_bar: LineEdit = $VBoxContainer/HBoxContainer/LineEdit
@@ -74,6 +78,39 @@ func _ready():
 	call_deferred("render")
 	call_deferred("update_navigation_buttons")
 	call_deferred("_handle_startup_behavior")
+
+func _cleanup_idle_clients():
+	var current_time = Time.get_ticks_msec()
+	var to_remove = []
+	
+	for domain in client_last_used:
+		if current_time - client_last_used[domain] > client_timeout_ms:
+			to_remove.append(domain)
+	
+	for domain in to_remove:
+		if gurt_clients.has(domain):
+			gurt_clients[domain].disconnect()
+			gurt_clients.erase(domain)
+		client_last_used.erase(domain)
+
+func get_or_create_gurt_client(domain: String) -> GurtProtocolClient:
+	_cleanup_idle_clients()
+	
+	if gurt_clients.has(domain):
+		client_last_used[domain] = Time.get_ticks_msec()
+		return gurt_clients[domain]
+	
+	var client = GurtProtocolClient.new()
+	
+	for ca_cert in CertificateManager.trusted_ca_certificates:
+		client.add_ca_certificate(ca_cert)
+	
+	if not client.create_client_with_dns(30, GurtProtocol.DNS_SERVER_IP, GurtProtocol.DNS_SERVER_PORT):
+		return null
+	
+	gurt_clients[domain] = client
+	client_last_used[domain] = Time.get_ticks_msec()
+	return client
 
 func _input(_event: InputEvent) -> void:
 	if Input.is_action_just_pressed("DevTools"):
@@ -151,19 +188,21 @@ func fetch_gurt_content_async(gurt_url: String, tab: Tab, original_url: String, 
 
 func _perform_gurt_request_threaded(request_data: Dictionary) -> Dictionary:
 	var gurt_url: String = request_data.gurt_url
-	var client = GurtProtocolClient.new()
 	
-	for ca_cert in CertificateManager.trusted_ca_certificates:
-		client.add_ca_certificate(ca_cert)
+	var host_domain = gurt_url
+	if host_domain.begins_with("gurt://"):
+		host_domain = host_domain.substr(7)
+	var slash_pos = host_domain.find("/")
+	if slash_pos != -1:
+		host_domain = host_domain.substr(0, slash_pos)
 	
-	if not client.create_client_with_dns(30, GurtProtocol.DNS_SERVER_IP, GurtProtocol.DNS_SERVER_PORT):
-		client.disconnect()
+	var client = get_or_create_gurt_client(host_domain)
+	if client == null:
 		return {"success": false, "error": "Failed to connect to GURT DNS server at " + GurtProtocol.DNS_SERVER_IP + ":" + str(GurtProtocol.DNS_SERVER_PORT)}
 	
 	var response = client.request(gurt_url, {
 		"method": "GET"
 	})
-	client.disconnect()
 	
 	if not response or not response.is_success:
 		var error_msg = "Connection failed"

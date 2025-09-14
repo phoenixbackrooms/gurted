@@ -1,5 +1,49 @@
 extends Node
 
+static var gurt_clients: Dictionary = {}
+static var client_last_used: Dictionary = {}
+static var client_timeout_ms: int = 30000
+
+func _ready():
+	var timer = Timer.new()
+	timer.wait_time = 10.0
+	timer.autostart = true
+	timer.timeout.connect(_cleanup_idle_clients)
+	add_child(timer)
+
+func _cleanup_idle_clients():
+	var current_time = Time.get_ticks_msec()
+	var to_remove = []
+	
+	for domain in client_last_used:
+		if current_time - client_last_used[domain] > client_timeout_ms:
+			to_remove.append(domain)
+	
+	for domain in to_remove:
+		if gurt_clients.has(domain):
+			gurt_clients[domain].disconnect()
+			gurt_clients.erase(domain)
+		client_last_used.erase(domain)
+
+func get_or_create_gurt_client(domain: String) -> GurtProtocolClient:
+	_cleanup_idle_clients()
+	
+	if gurt_clients.has(domain):
+		client_last_used[domain] = Time.get_ticks_msec()
+		return gurt_clients[domain]
+	
+	var client = GurtProtocolClient.new()
+	
+	for ca_cert in CertificateManager.trusted_ca_certificates:
+		client.add_ca_certificate(ca_cert)
+	
+	if not client.create_client_with_dns(30, GurtProtocol.DNS_SERVER_IP, GurtProtocol.DNS_SERVER_PORT):
+		return null
+	
+	gurt_clients[domain] = client
+	client_last_used[domain] = Time.get_ticks_msec()
+	return client
+
 func fetch_image(url: String) -> ImageTexture:
 	if url.is_empty():
 		return null
@@ -170,15 +214,6 @@ func fetch_gurt_resource(url: String, as_binary: bool = false):
 	
 	var network_request = NetworkManager.start_request(gurt_url, "GET", false)
 	
-	var client = GurtProtocolClient.new()
-	
-	for ca_cert in CertificateManager.trusted_ca_certificates:
-		client.add_ca_certificate(ca_cert)
-	
-	if not client.create_client_with_dns(30, GurtProtocol.DNS_SERVER_IP, GurtProtocol.DNS_SERVER_PORT):
-		NetworkManager.fail_request(network_request.id, "Failed to create GURT client")
-		return ""
-	
 	var host_domain = gurt_url
 	if host_domain.begins_with("gurt://"):
 		host_domain = host_domain.substr(7)
@@ -186,11 +221,15 @@ func fetch_gurt_resource(url: String, as_binary: bool = false):
 	if slash_pos != -1:
 		host_domain = host_domain.substr(0, slash_pos)
 	
+	var client = get_or_create_gurt_client(host_domain)
+	if client == null:
+		NetworkManager.fail_request(network_request.id, "Failed to create GURT client")
+		return PackedByteArray() if as_binary else ""
+	
 	var response = client.request(gurt_url, {
 		"method": "GET",
 		"headers": {"Host": host_domain}
 	})
-	client.disconnect()
 	
 	if not response or not response.is_success:
 		var error_msg = "Failed to load GURT resource"
