@@ -26,18 +26,71 @@ sudo ufw allow 4878/udp
 sudo ufw --force enable
 
 echo "📦 Downloading Gurty and GurtCA..."
+set -euo pipefail
 cd /tmp
-LATEST_RELEASE=$(curl -s https://api.github.com/repos/phoenixbackrooms/gurted-unofficial/releases/latest | grep "tag_name" | cut -d '"' -f 4)
+
+LATEST_RELEASE=$(curl -fsSL https://api.github.com/repos/phoenixbackrooms/gurted-unofficial/releases/latest | grep -m1 '"tag_name"' | cut -d '"' -f 4)
 DOWNLOAD_URL="https://github.com/phoenixbackrooms/gurted-unofficial/releases/download/${LATEST_RELEASE}/gurted-tools-linux.tar.gz"
 echo "Downloading from: $DOWNLOAD_URL"
-wget -O gurted-tools-linux.tar.gz "$DOWNLOAD_URL"
-tar -xzf gurted-tools-linux.tar.gz
-sudo mv gurty gurtca /home/gurted/bin/
-sudo chmod +x /home/gurted/bin/*
-sudo chown -R gurted:gurted /home/gurted/bin
+
+rm -rf /tmp/gurted-tools-extract
+mkdir -p /tmp/gurted-tools-extract
+cd /tmp/gurted-tools-extract
+
+# Download
+curl -fL "$DOWNLOAD_URL" -o gurted-tools-linux.tar.gz
+
+# Some releases wrap a tar inside a tar.gz; handle both single and double layer
+# First extract outer .tar.gz into current dir
+tar -xzf gurted-tools-linux.tar.gz || {
+  echo "Error: failed to extract gurted-tools-linux.tar.gz"
+  exit 1
+}
+
+# If an inner .tar exists, extract it
+INNER_TAR=$(find . -maxdepth 2 -type f -name "*.tar" | head -n 1 || true)
+if [ -n "${INNER_TAR}" ]; then
+  echo "Found inner tar: ${INNER_TAR}; extracting..."
+  tar -xf "${INNER_TAR}" -C .
+fi
+
+# Find gurty and gurtca wherever they are in the extracted tree
+GURTY_PATH=$(find . -type f -name gurty -perm -u+x | head -n 1 || true)
+GURTCA_PATH=$(find . -type f -name gurtca -perm -u+x | head -n 1 || true)
+
+# If not marked executable, still try to find by name then chmod
+if [ -z "${GURTY_PATH}" ]; then
+  GURTY_PATH=$(find . -type f -name gurty | head -n 1 || true)
+  [ -n "${GURTY_PATH}" ] && chmod +x "${GURTY_PATH}"
+fi
+if [ -z "${GURTCA_PATH}" ]; then
+  GURTCA_PATH=$(find . -type f -name gurtca | head -n 1 || true)
+  [ -n "${GURTCA_PATH}" ] && chmod +x "${GURTCA_PATH}"
+fi
+
+if [ -z "${GURTY_PATH}" ] || [ -z "${GURTCA_PATH}" ]; then
+  echo "Error: could not locate gurty and/or gurtca in archive."
+  echo "Contents for debugging:"
+  find . -maxdepth 3 -type f | sed 's/^/ - /'
+  exit 1
+fi
+
+# Quick check these are ELF binaries (Linux)
+if ! file "${GURTY_PATH}" | grep -qi 'ELF'; then
+  echo "Warning: ${GURTY_PATH} does not look like a Linux ELF binary."
+fi
+if ! file "${GURTCA_PATH}" | grep -qi 'ELF'; then
+  echo "Warning: ${GURTCA_PATH} does not look like a Linux ELF binary."
+fi
+
+sudo install -m 0755 -o gurted -g gurted "${GURTY_PATH}" /home/gurted/bin/gurty
+sudo install -m 0755 -o gurted -g gurted "${GURTCA_PATH}" /home/gurted/bin/gurtca
+
 sudo mkdir -p /var/log/gurty
 sudo touch /var/log/gurty/{access.log,error.log}
 sudo chown -R gurted:gurted /var/log/gurty
+
+echo "✅ Installed gurty and gurtca to /home/gurted/bin"
 
 
 # Create systemd service
