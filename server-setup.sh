@@ -32,7 +32,7 @@ DOWNLOAD_URL="https://github.com/phoenixbackrooms/gurted-unofficial/releases/dow
 echo "Downloading from: $DOWNLOAD_URL"
 wget -O gurted-tools-linux.tar.gz "$DOWNLOAD_URL"
 tar -xzf gurted-tools-linux.tar.gz
-sudo mv gurty gurtca /home/gurted/bin/
+sudo mv temp-tools-linux/gurty temp-tools-linux/gurtca /home/gurted/bin/
 sudo chmod +x /home/gurted/bin/*
 sudo chown -R gurted:gurted /home/gurted/bin
 sudo mkdir -p /var/log/gurty
