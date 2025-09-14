@@ -20,8 +20,9 @@ sudo chown -R gurted:gurted /home/gurted
 # Setup basic firewall
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
-sudo ufw allow OpenSSH
+sudo ufw allow 22/tcp
 sudo ufw allow 4878/tcp
+sudo ufw allow 4878/udp
 sudo ufw --force enable
 
 echo "📦 Downloading Gurty and GurtCA..."
@@ -186,9 +187,4 @@ EOF
 echo "✅ Basic setup complete!"
 echo ""
 echo "Next steps:"
-echo "1. Upload your website files to /home/gurted/mysite/"
-echo "2. Generate SSL certificates with: sudo -u gurted /home/gurted/bin/gurtca [your commands here]"
-echo "3. Start the server with: sudo systemctl enable --now gurted"
-echo "4. Check status with: sudo systemctl status gurted"
-echo ""
-echo "Your site will be available at gurt://yourdomain.com:4878"
+echo "Continue following the guide at gurt://is-a-clank.er/docs/server-setup.html"
