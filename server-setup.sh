@@ -32,13 +32,16 @@ DOWNLOAD_URL="https://github.com/phoenixbackrooms/gurted-unofficial/releases/dow
 echo "Downloading from: $DOWNLOAD_URL"
 wget -O gurted-tools-linux.tar.gz "$DOWNLOAD_URL"
 tar -xzf gurted-tools-linux.tar.gz
-sudo mv temp-tools-linux/gurty temp-tools-linux/gurtca /home/gurted/bin/
-sudo chmod +x /home/gurted/bin/*
+
+# Move binaries to correct location
+sudo cp temp-tools-linux/gurty temp-tools-linux/gurtca /home/gurted/bin/
 sudo chown -R gurted:gurted /home/gurted/bin
+sudo chmod +x /home/gurted/bin/*
+
+# Create log directories
 sudo mkdir -p /var/log/gurty
 sudo touch /var/log/gurty/{access.log,error.log}
 sudo chown -R gurted:gurted /var/log/gurty
-
 
 # Create systemd service
 sudo tee /etc/systemd/system/gurted.service > /dev/null <<EOF
@@ -152,7 +155,6 @@ server = "GURT/1.0.0"
 EOF
 
 # basic starter page
-
 sudo -u gurted tee /home/gurted/mysite/index.html > /dev/null <<EOF
 <!DOCTYPE html>
 <html>
