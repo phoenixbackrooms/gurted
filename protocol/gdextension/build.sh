@@ -82,12 +82,7 @@ case $PLATFORM in
         LIB_NAME="libgurt_godot.so"
         ;;
     macos)
-        ARCH="$(uname -m)"
-        if [[ "$ARCH" == "x86_64" ]]; then
-            RUST_TARGET="x86_64-apple-darwin"
-        else
-            RUST_TARGET="aarch64-apple-darwin"
-        fi
+        RUST_TARGET="aarch64-apple-darwin"
         LIB_NAME="libgurt_godot.dylib"
         ;;
     macos-intel)
