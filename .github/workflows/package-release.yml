@@ -4,14 +4,16 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - main  # Only allow tag pushes from main branch
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag'
+        description: 'Release tag (will create release from current main branch HEAD)'
         required: true
         default: 'v0.1.0'
       download_artifacts:
-        description: 'Download latest artifacts from main branch'
+        description: 'Download artifacts'
         required: false
         default: 'true'
         type: boolean
@@ -23,12 +25,73 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        # Always checkout main branch to ensure we're working with merged code
+        ref: main
+        fetch-depth: 0  # Fetch full history for verification
+
+    - name: Verify release is from main branch
+      shell: powershell
+      run: |
+        if ("${{ github.event_name }}" -eq "push") {
+          # For tag pushes, verify the tag commit is in main branch history
+          $tagCommit = "${{ github.sha }}"
+          Write-Output "Verifying tag commit $tagCommit is in main branch history..."
+          
+          # Check if the tag commit is reachable from main
+          git checkout main
+          $isInMain = git merge-base --is-ancestor $tagCommit main
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "ERROR: Tag commit $tagCommit is not in main branch history. Only merged code can be released."
+            exit 1
+          }
+          Write-Output "✓ Tag commit is in main branch history"
+        } else {
+          # For manual dispatch, we're already on main branch
+          Write-Output "✓ Manual release from main branch HEAD"
+        }
+
+    - name: Get target commit SHA
+      id: get_commit
+      shell: powershell
+      run: |
+        if ("${{ github.event_name }}" -eq "push") {
+          # For tag pushes, use the tag commit (already verified to be in main)
+          $commit = "${{ github.sha }}"
+          Write-Output "Using tag commit SHA: $commit"
+        } else {
+          # For manual dispatch, always use current main branch HEAD
+          git checkout main
+          $commit = git rev-parse HEAD
+          Write-Output "Using main branch HEAD: $commit"
+        }
+        echo "commit_sha=$commit" >> $env:GITHUB_OUTPUT
+
+    - name: Verify commit exists and is merged
+      shell: powershell
+      run: |
+        $commit = "${{ steps.get_commit.outputs.commit_sha }}"
+        
+        # Double-check that this commit is in main branch history
+        git checkout main
+        $isInMain = git merge-base --is-ancestor $commit main
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "ERROR: Commit $commit is not merged into main branch. Release aborted."
+          exit 1
+        }
+        
+        Write-Output "✓ Verified commit $commit is merged into main branch"
+        
+        # Get commit info for logging
+        $commitInfo = git log -1 --format="%H %s" $commit
+        Write-Output "Releasing commit: $commitInfo"
 
     - name: Download GurtCA artifacts
       if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
       uses: dawidd6/action-download-artifact@v6
       with:
         workflow: build-gurtca.yml
+        commit: ${{ steps.get_commit.outputs.commit_sha }}
         name_is_regexp: true
         name: gurtca-.*
         path: artifacts/
@@ -40,6 +103,7 @@ jobs:
       uses: dawidd6/action-download-artifact@v6
       with:
         workflow: build-gurty.yml
+        commit: ${{ steps.get_commit.outputs.commit_sha }}
         name_is_regexp: true
         name: gurty-.*
         path: artifacts/
@@ -51,6 +115,7 @@ jobs:
       uses: dawidd6/action-download-artifact@v6
       with:
         workflow: build-gdextension.yml
+        commit: ${{ steps.get_commit.outputs.commit_sha }}
         name_is_regexp: true
         name: gdextension-.*
         path: artifacts/
@@ -62,6 +127,7 @@ jobs:
       uses: dawidd6/action-download-artifact@v6
       with:
         workflow: build-flumi.yml
+        commit: ${{ steps.get_commit.outputs.commit_sha }}
         name_is_regexp: true
         name: flumi-.*
         path: artifacts/
@@ -88,11 +154,9 @@ jobs:
         if (Test-Path "artifacts/flumi-windows") {
           Write-Output "Compressing Windows Flumi binaries..."
           
-          # Create build-scripts/Windows structure
           New-Item -ItemType Directory -Path "build-scripts/Windows" -Force
           Copy-Item "artifacts/flumi-windows/*" "build-scripts/Windows/" -Force
           
-          # Run UPX compression
           try {
             & ".\upx-4.2.4-win64\upx.exe" --lzma --best build-scripts/Windows/*.exe build-scripts/Windows/*.dll
             Write-Output "UPX compression completed successfully"
@@ -100,7 +164,6 @@ jobs:
             Write-Output "UPX compression completed with warnings: $($_.Exception.Message)"
           }
           
-          # Copy compressed files back
           Copy-Item "build-scripts/Windows/*" "artifacts/flumi-windows/" -Force
         }
 
@@ -118,22 +181,17 @@ jobs:
         if (Test-Path "artifacts\flumi-windows") {
           Write-Output "Building Windows installer..."
 
-          # Ensure the path relative to the .iss exists
           New-Item -ItemType Directory -Path "flumi\build-scripts\Windows" -Force | Out-Null
 
-          # Copy files from artifacts into flumi\build-scripts\Windows (robust enumeration)
           Get-ChildItem -Path "artifacts\flumi-windows" -File | ForEach-Object {
             Copy-Item -Path $_.FullName -Destination "flumi\build-scripts\Windows" -Force
           }
 
-          # Ensure installer output dir matches OutputDir=Windows\installer in .iss
           New-Item -ItemType Directory -Path "flumi\build-scripts\Windows\installer" -Force | Out-Null
 
-          # Compile using .iss (paths resolved relative to flumi/build-scripts)
           $issPath = Resolve-Path "flumi\build-scripts\flumi-installer.iss"
           & "C:\InnoSetup\ISCC.exe" $issPath.Path
 
-          # Copy installer to artifacts
           $built = Get-ChildItem "flumi\build-scripts\Windows\installer" -Filter "Flumi-Setup-*.exe" -ErrorAction SilentlyContinue
           if ($built) {
             Copy-Item $built.FullName "artifacts\flumi-windows" -Force
@@ -142,6 +200,7 @@ jobs:
             Write-Output "Warning: Installer was not created"
           }
         }
+
     - name: Prepare release assets
       shell: powershell
       run: |
@@ -152,29 +211,24 @@ jobs:
           $tempDir = "temp-tools-$platform"
           New-Item -ItemType Directory -Path $tempDir -Force
           
-          # Copy GurtCA if available
           if (Test-Path "artifacts/gurtca-$platform") {
             Copy-Item "artifacts/gurtca-$platform/*" $tempDir -Force
           }
           
-          # Copy Gurty if available
           if (Test-Path "artifacts/gurty-$platform") {
             Copy-Item "artifacts/gurty-$platform/*" $tempDir -Force
           }
           
-          # Package if we have any files
           $files = Get-ChildItem $tempDir -ErrorAction SilentlyContinue
           if ($files.Count -gt 0) {
             if ($platform -eq "windows") {
               Compress-Archive -Path "$tempDir/*" -DestinationPath "release-assets/gurted-tools-$platform.zip" -Force
             } else {
-              # For Linux files, we'll use 7zip if available, otherwise skip tar.gz creation on Windows
               if (Get-Command "7z" -ErrorAction SilentlyContinue) {
                 & "7z" a -ttar "release-assets/gurted-tools-$platform.tar" "$tempDir/*"
                 & "7z" a -tgzip "release-assets/gurted-tools-$platform.tar.gz" "release-assets/gurted-tools-$platform.tar"
                 Remove-Item "release-assets/gurted-tools-$platform.tar" -Force
               } else {
-                # Fallback to zip for Linux binaries too
                 Compress-Archive -Path "$tempDir/*" -DestinationPath "release-assets/gurted-tools-$platform.zip" -Force
               }
             }
@@ -189,8 +243,6 @@ jobs:
             Push-Location "artifacts/flumi-$platform"
             
             if ($platform -eq "windows") {
-              
-              # Copy installer separately if it exists
               $installer = Get-ChildItem "Flumi-Setup-*.exe" -ErrorAction SilentlyContinue
               if ($installer) {
                 Copy-Item $installer "../../release-assets/" -Force
@@ -207,7 +259,38 @@ jobs:
             Pop-Location
           }
         }
+
+    - name: Generate checksums
+      shell: powershell
+      run: |
+        $hashFile = "release-assets/checksums.txt"
+        $sha256File = "release-assets/SHA256SUMS"
         
+        Write-Output "# Gurted Release Checksums" > $hashFile
+        Write-Output "Generated on: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')" >> $hashFile
+        Write-Output "Commit SHA: ${{ steps.get_commit.outputs.commit_sha }}" >> $hashFile
+        Write-Output "" >> $hashFile
+        
+        # Create SHA256SUMS file in standard format
+        Write-Output "" > $sha256File
+        
+        $releaseFiles = Get-ChildItem "release-assets" -File | Where-Object { $_.Name -notmatch "^(checksums\.txt|SHA256SUMS)$" }
+        
+        foreach ($file in $releaseFiles) {
+          $hash = Get-FileHash -Path $file.FullName -Algorithm SHA256
+          $hashString = $hash.Hash.ToLower()
+          $fileName = $file.Name
+          
+          # Add to readable checksums file
+          Write-Output "$fileName" >> $hashFile
+          Write-Output "  SHA256: $hashString" >> $hashFile
+          Write-Output "" >> $hashFile
+          
+          # Add to SHA256SUMS in standard format (hash *filename)
+          Write-Output "$hashString *$fileName" >> $sha256File
+        }
+        
+        Write-Output "Generated checksums for $($releaseFiles.Count) files"
 
     - name: Get release tag
       id: get_tag
@@ -220,37 +303,52 @@ jobs:
           echo "tag=$tag" >> $env:GITHUB_OUTPUT
         }
 
+    - name: Generate release notes with checksums
+      id: release_notes
+      shell: powershell
+      run: |
+        $tag = "${{ steps.get_tag.outputs.tag }}"
+        $commitSha = "${{ steps.get_commit.outputs.commit_sha }}"
+        $shortSha = $commitSha.Substring(0, 7)
+        
+        $releaseNotes = @"
+## Gurted Release $tag
+
+**Built from commit:** [\`$shortSha\`](https://github.com/${{ github.repository }}/commit/$commitSha)  
+**Branch:** main (verified)
+
+### ⚠️ NOTICE: THESE BUILDS ARE NOT OFFICIAL AND MAY CONTAIN DIFFERENCES FROM UPSTREAM.
+
+🔒 **Security Notice:** This release contains only code that has been merged into the main branch.
+
+This release includes:
+- **GurtCA**: Certificate Authority for TLS certificates
+- **Gurty**: CLI tool for managing GURT protocol servers  
+- **Flumi**: The official browser for the GURT ecosystem
+
+### 📦 Downloads
+- \`gurted-tools-*.zip\`: Contains GurtCA and Gurty binaries
+- \`flumi-linux.*\`: Contains the Flumi wayfinder application for Linux
+- \`Flumi-Setup-*.exe\`: Windows installer for Flumi (recommended for Windows users)
+- \`checksums.txt\`: Human-readable checksums for all files
+- \`SHA256SUMS\`: Standard format checksums for verification
+
+
+For documentation and usage instructions, visit [docs.gurted.com](https://docs.gurted.com)
+"@
+        
+        # Save to file for the release step
+        $releaseNotes | Out-File -FilePath "release-notes.md" -Encoding UTF8
+        Write-Output "Release notes generated"
+
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.get_tag.outputs.tag }}
         name: Gurted ${{ steps.get_tag.outputs.tag }}
-        body: |
-          ## Gurted Release ${{ steps.get_tag.outputs.tag }}
-
-          ### NOTICE: THESE BUILDS ARE NOT OFFICIAL AND MAY CONTAIN DIFFIRENCES FROM UPSTREAM.
-          This release includes:
-          - **GurtCA**: Certificate Authority for TLS certificates
-          - **Gurty**: CLI tool for managing GURT protocol servers  
-          - **Flumi**: The official browser for the GURT ecosystem
-          
-          ### Downloads
-          - `gurted-tools-*.zip`: Contains GurtCA and Gurty binaries
-          - `flumi-linux.*`: Contains the Flumi wayfinder application for Linux
-          - `Flumi-Setup-*.exe`: Windows installer for Flumi (recommended for Windows users)
-          
-          ### Platform Support
-          - Linux (x86_64)
-          - Windows (x86_64)
-          
-          For documentation and usage instructions, visit [docs.gurted.com](https://docs.gurted.com)
+        body_path: release-notes.md
         files: release-assets/*
         draft: false
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-
-
-
-
