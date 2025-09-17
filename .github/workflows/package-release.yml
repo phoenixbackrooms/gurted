@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-    branches:
-      - main  # Only allow tag pushes from main branch
   workflow_dispatch:
     inputs:
       tag:
@@ -26,19 +24,16 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
-        # Always checkout main branch to ensure we're working with merged code
         ref: main
-        fetch-depth: 0  # Fetch full history for verification
+        fetch-depth: 0
 
     - name: Verify release is from main branch
       shell: powershell
       run: |
         if ("${{ github.event_name }}" -eq "push") {
-          # For tag pushes, verify the tag commit is in main branch history
           $tagCommit = "${{ github.sha }}"
           Write-Output "Verifying tag commit $tagCommit is in main branch history..."
           
-          # Check if the tag commit is reachable from main
           git checkout main
           $isInMain = git merge-base --is-ancestor $tagCommit main
           if ($LASTEXITCODE -ne 0) {
@@ -47,7 +42,6 @@ jobs:
           }
           Write-Output "✓ Tag commit is in main branch history"
         } else {
-          # For manual dispatch, we're already on main branch
           Write-Output "✓ Manual release from main branch HEAD"
         }
 
@@ -56,11 +50,9 @@ jobs:
       shell: powershell
       run: |
         if ("${{ github.event_name }}" -eq "push") {
-          # For tag pushes, use the tag commit (already verified to be in main)
           $commit = "${{ github.sha }}"
           Write-Output "Using tag commit SHA: $commit"
         } else {
-          # For manual dispatch, always use current main branch HEAD
           git checkout main
           $commit = git rev-parse HEAD
           Write-Output "Using main branch HEAD: $commit"
@@ -72,7 +64,6 @@ jobs:
       run: |
         $commit = "${{ steps.get_commit.outputs.commit_sha }}"
         
-        # Double-check that this commit is in main branch history
         git checkout main
         $isInMain = git merge-base --is-ancestor $commit main
         if ($LASTEXITCODE -ne 0) {
@@ -82,7 +73,6 @@ jobs:
         
         Write-Output "✓ Verified commit $commit is merged into main branch"
         
-        # Get commit info for logging
         $commitInfo = git log -1 --format="%H %s" $commit
         Write-Output "Releasing commit: $commitInfo"
 
@@ -206,7 +196,6 @@ jobs:
       run: |
         New-Item -ItemType Directory -Path "release-assets" -Force
         
-        # Package Rust binaries (GurtCA + Gurty)
         foreach ($platform in @("linux", "windows")) {
           $tempDir = "temp-tools-$platform"
           New-Item -ItemType Directory -Path $tempDir -Force
@@ -237,7 +226,6 @@ jobs:
           Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
         }
         
-        # Package Flumi builds
         foreach ($platform in @("linux", "windows")) {
           if (Test-Path "artifacts/flumi-$platform") {
             Push-Location "artifacts/flumi-$platform"
@@ -271,7 +259,6 @@ jobs:
         Write-Output "Commit SHA: ${{ steps.get_commit.outputs.commit_sha }}" >> $hashFile
         Write-Output "" >> $hashFile
         
-        # Create SHA256SUMS file in standard format
         Write-Output "" > $sha256File
         
         $releaseFiles = Get-ChildItem "release-assets" -File | Where-Object { $_.Name -notmatch "^(checksums\.txt|SHA256SUMS)$" }
@@ -281,12 +268,10 @@ jobs:
           $hashString = $hash.Hash.ToLower()
           $fileName = $file.Name
           
-          # Add to readable checksums file
           Write-Output "$fileName" >> $hashFile
           Write-Output "  SHA256: $hashString" >> $hashFile
           Write-Output "" >> $hashFile
           
-          # Add to SHA256SUMS in standard format (hash *filename)
           Write-Output "$hashString *$fileName" >> $sha256File
         }
         
@@ -303,41 +288,42 @@ jobs:
           echo "tag=$tag" >> $env:GITHUB_OUTPUT
         }
 
-    - name: Generate release notes with checksums
-      id: release_notes
+    - name: Generate release notes
       shell: powershell
       run: |
         $tag = "${{ steps.get_tag.outputs.tag }}"
         $commitSha = "${{ steps.get_commit.outputs.commit_sha }}"
         $shortSha = $commitSha.Substring(0, 7)
         
-        $releaseNotes = @"
-## Gurted Release $tag
-
-**Built from commit:** [\`$shortSha\`](https://github.com/${{ github.repository }}/commit/$commitSha)  
-**Branch:** main (verified)
-
-### ⚠️ NOTICE: THESE BUILDS ARE NOT OFFICIAL AND MAY CONTAIN DIFFERENCES FROM UPSTREAM.
-
-🔒 **Security Notice:** This release contains only code that has been merged into the main branch.
-
-This release includes:
-- **GurtCA**: Certificate Authority for TLS certificates
-- **Gurty**: CLI tool for managing GURT protocol servers  
-- **Flumi**: The official browser for the GURT ecosystem
-
-### 📦 Downloads
-- \`gurted-tools-*.zip\`: Contains GurtCA and Gurty binaries
-- \`flumi-linux.*\`: Contains the Flumi wayfinder application for Linux
-- \`Flumi-Setup-*.exe\`: Windows installer for Flumi (recommended for Windows users)
-- \`checksums.txt\`: Human-readable checksums for all files
-- \`SHA256SUMS\`: Standard format checksums for verification
-
-
-For documentation and usage instructions, visit [docs.gurted.com](https://docs.gurted.com)
-"@
+        $releaseNotes = "## Gurted Release $tag`n`n"
+        $releaseNotes += "**Built from commit:** [$shortSha](https://github.com/${{ github.repository }}/commit/$commitSha)`n"
+        $releaseNotes += "**Branch:** main (verified)`n`n"
+        $releaseNotes += "### ⚠️ NOTICE: THESE BUILDS ARE NOT OFFICIAL AND MAY CONTAIN DIFFERENCES FROM UPSTREAM.`n`n"
+        $releaseNotes += "🔒 **Security Notice:** This release contains only code that has been merged into the main branch.`n`n"
+        $releaseNotes += "This release includes:`n"
+        $releaseNotes += "- **GurtCA**: Certificate Authority for TLS certificates`n"
+        $releaseNotes += "- **Gurty**: CLI tool for managing GURT protocol servers`n"
+        $releaseNotes += "- **Flumi**: The official browser for the GURT ecosystem`n`n"
+        $releaseNotes += "### 📦 Downloads`n"
+        $releaseNotes += "- `gurted-tools-*.zip`: Contains GurtCA and Gurty binaries`n"
+        $releaseNotes += "- `flumi-linux.*`: Contains the Flumi wayfinder application for Linux`n"
+        $releaseNotes += "- `Flumi-Setup-*.exe`: Windows installer for Flumi (recommended for Windows users)`n"
+        $releaseNotes += "- `checksums.txt`: Human-readable checksums for all files`n"
+        $releaseNotes += "- `SHA256SUMS`: Standard format checksums for verification`n`n"
+        $releaseNotes += "### 🖥️ Platform Support`n"
+        $releaseNotes += "- Linux (x86_64)`n"
+        $releaseNotes += "- Windows (x86_64)`n`n"
+        $releaseNotes += "### 📋 SHA256 Checksums`n"
+        $releaseNotes += "``````n"
         
-        # Save to file for the release step
+        if (Test-Path "release-assets/SHA256SUMS") {
+          $checksums = Get-Content "release-assets/SHA256SUMS"
+          $releaseNotes += ($checksums -join "`n")
+        }
+        
+        $releaseNotes += "`n``````n`n"
+        $releaseNotes += "For documentation and usage instructions, visit [docs.gurted.com](https://docs.gurted.com)"
+        
         $releaseNotes | Out-File -FilePath "release-notes.md" -Encoding UTF8
         Write-Output "Release notes generated"
 
