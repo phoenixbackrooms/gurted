@@ -105,12 +105,31 @@ func get_or_create_gurt_client(domain: String) -> GurtProtocolClient:
 	for ca_cert in CertificateManager.trusted_ca_certificates:
 		client.add_ca_certificate(ca_cert)
 	
-	if not client.create_client_with_dns(30, GurtProtocol.DNS_SERVER_IP, GurtProtocol.DNS_SERVER_PORT):
-		return null
+	# Try primary DNS server first
+	var primary_dns = SettingsManager.get_dns_url()
+	var dns_parts = primary_dns.split(":")
+	var primary_ip = dns_parts[0]
+	var primary_port = int(dns_parts[1]) if dns_parts.size() > 1 else 4878
 	
-	gurt_clients[domain] = client
-	client_last_used[domain] = Time.get_ticks_msec()
-	return client
+	if client.create_client_with_dns(30, primary_ip, primary_port):
+		gurt_clients[domain] = client
+		client_last_used[domain] = Time.get_ticks_msec()
+		return client
+	
+	# If primary DNS fails, try fallback DNS
+	print("Primary DNS failed, trying fallback DNS...")
+	var fallback_dns = SettingsManager.get_dns_fallback_url()
+	var fallback_parts = fallback_dns.split(":")
+	var fallback_ip = fallback_parts[0]
+	var fallback_port = int(fallback_parts[1]) if fallback_parts.size() > 1 else 4878
+	
+	if client.create_client_with_dns(30, fallback_ip, fallback_port):
+		gurt_clients[domain] = client
+		client_last_used[domain] = Time.get_ticks_msec()
+		return client
+	
+	print("Both primary and fallback DNS servers failed")
+	return null
 
 func _input(_event: InputEvent) -> void:
 	if Input.is_action_just_pressed("DevTools"):
@@ -196,23 +215,50 @@ func _perform_gurt_request_threaded(request_data: Dictionary) -> Dictionary:
 	if slash_pos != -1:
 		host_domain = host_domain.substr(0, slash_pos)
 	
+	# Try primary DNS first
 	var client = get_or_create_gurt_client(host_domain)
-	if client == null:
-		return {"success": false, "error": "Failed to connect to GURT DNS server at " + GurtProtocol.DNS_SERVER_IP + ":" + str(GurtProtocol.DNS_SERVER_PORT)}
+	if client != null:
+		var response = client.request(gurt_url, {
+			"method": "GET"
+		})
+		
+		if response and response.is_success:
+			return {"success": true, "html_bytes": response.body}
 	
-	var response = client.request(gurt_url, {
-		"method": "GET"
-	})
+	# If primary DNS failed, try fallback DNS
+	print("Primary DNS request failed, trying fallback DNS...")
 	
-	if not response or not response.is_success:
-		var error_msg = "Connection failed"
-		if response:
-			error_msg = "GURT %d: %s" % [response.status_code, response.status_message]
-		else:
-			error_msg = "Request timed out or connection failed"
-		return {"success": false, "error": error_msg}
+	# Clear the failed client from cache
+	if gurt_clients.has(host_domain):
+		gurt_clients[host_domain].disconnect()
+		gurt_clients.erase(host_domain)
+	client_last_used.erase(host_domain)
 	
-	return {"success": true, "html_bytes": response.body}
+	# Create new client with fallback DNS
+	var fallback_client = GurtProtocolClient.new()
+	
+	for ca_cert in CertificateManager.trusted_ca_certificates:
+		fallback_client.add_ca_certificate(ca_cert)
+	
+	var fallback_dns = SettingsManager.get_dns_fallback_url()
+	var fallback_parts = fallback_dns.split(":")
+	var fallback_ip = fallback_parts[0]
+	var fallback_port = int(fallback_parts[1]) if fallback_parts.size() > 1 else 4878
+	
+	if fallback_client.create_client_with_dns(30, fallback_ip, fallback_port):
+		var fallback_response = fallback_client.request(gurt_url, {
+			"method": "GET"
+		})
+		
+		if fallback_response and fallback_response.is_success:
+			# Cache the working fallback client
+			gurt_clients[host_domain] = fallback_client
+			client_last_used[host_domain] = Time.get_ticks_msec()
+			return {"success": true, "html_bytes": fallback_response.body}
+	
+	# Both DNS servers failed
+	var primary_dns = SettingsManager.get_dns_url()
+	return {"success": false, "error": "Failed to connect to both primary DNS (" + primary_dns + ") and fallback DNS (" + fallback_dns + ")"}
 
 func fetch_local_file_content_async(file_url: String, tab: Tab, original_url: String, add_to_history: bool = true) -> void:
 	var file_path = URLUtils.file_url_to_path(file_url)

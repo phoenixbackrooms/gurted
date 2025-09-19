@@ -8,7 +8,8 @@ var settings_data = {
 	"startup_url": "",
 	"search_engine_url": "gurt://search.web?q=",
 	"download_confirmation": true,
-	"dns_url": "135.125.163.131:4878"
+	"dns_url": "135.125.163.131:4878",
+	"dns_fallback_url": "8.8.8.8:4878"
 }
 
 var _loaded = false
@@ -71,6 +72,9 @@ func get_search_engine_url() -> String:
 func get_dns_url() -> String:
 	return settings_data.dns_url
 
+func get_dns_fallback_url() -> String:
+	return settings_data.dns_fallback_url
+
 func get_startup_behavior() -> Dictionary:
 	return {
 		"new_tab": settings_data.startup_new_tab,
@@ -89,8 +93,10 @@ func set_search_engine_url(value: String):
 func set_dns_url(value: String):
 	settings_data.dns_url = value
 	save_settings()
-	# Update GurtProtocol immediately
-	GurtProtocol.set_dns_server(value)
+
+func set_dns_fallback_url(value: String):
+	settings_data.dns_fallback_url = value
+	save_settings()
 
 func set_startup_new_tab(value: bool):
 	settings_data.startup_new_tab = value

@@ -553,6 +553,13 @@ theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_font_sizes/font_size = 16
 text = "DNS settings"
 
+[node name="Description" type="Label" parent="HSplitContainer/Content/ScrollContainer/ContentStack/AdvancedPanel/DNSSection/VBoxContainer"]
+layout_mode = 2
+theme = ExtResource("2_theme")
+theme_override_colors/font_color = Color(0.7, 0.7, 0.7, 1)
+text = "If the primary DNS server fails, the fallback DNS will be used automatically"
+autowrap_mode = 3
+
 [node name="HBoxContainer" type="HBoxContainer" parent="HSplitContainer/Content/ScrollContainer/ContentStack/AdvancedPanel/DNSSection/VBoxContainer"]
 layout_mode = 2
 
@@ -568,6 +575,22 @@ size_flags_horizontal = 3
 theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 text = "135.125.163.131:4878"
 placeholder_text = "135.125.163.131:4878"
+
+[node name="HBoxContainer2" type="HBoxContainer" parent="HSplitContainer/Content/ScrollContainer/ContentStack/AdvancedPanel/DNSSection/VBoxContainer"]
+layout_mode = 2
+
+[node name="DNSFallbackLabel" type="Label" parent="HSplitContainer/Content/ScrollContainer/ContentStack/AdvancedPanel/DNSSection/VBoxContainer/HBoxContainer2"]
+layout_mode = 2
+theme = ExtResource("2_theme")
+theme_override_colors/font_color = Color(0.8, 0.8, 0.8, 1)
+text = "Fallback DNS URL:"
+
+[node name="DNSFallbackInput" type="LineEdit" parent="HSplitContainer/Content/ScrollContainer/ContentStack/AdvancedPanel/DNSSection/VBoxContainer/HBoxContainer2"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/normal = SubResource("StyleBoxFlat_input")
+text = "8.8.8.8:4878"
+placeholder_text = "8.8.8.8:4878"
 
 [node name="AboutPanel" type="VBoxContainer" parent="HSplitContainer/Content/ScrollContainer/ContentStack"]
 layout_mode = 2
