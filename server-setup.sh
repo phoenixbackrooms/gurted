@@ -35,29 +35,65 @@ DOWNLOAD_URL="https://github.com/phoenixbackrooms/gurted-unofficial/releases/dow
 echo "Downloading from: $DOWNLOAD_URL"
 wget -O gurted-tools-linux.tar.gz "$DOWNLOAD_URL"
 
-# Extract and find binaries more robustly
+# Extract the tar file
+echo "📦 Extracting files..."
 tar -xzf gurted-tools-linux.tar.gz
 
-# Find the binaries wherever they are in the extracted content
-GURTY_PATH=$(find . -name "gurty" -type f -executable 2>/dev/null | head -1)
-GURTCA_PATH=$(find . -name "gurtca" -type f -executable 2>/dev/null | head -1)
+# List all files to debug
+echo "📋 Files extracted:"
+find . -name "*gurt*" -type f || true
 
-if [ -n "$GURTY_PATH" ] && [ -n "$GURTCA_PATH" ]; then
-    sudo cp "$GURTY_PATH" "$GURTCA_PATH" /home/gurted/bin/
-    echo "✅ Found and installed binaries: $GURTY_PATH, $GURTCA_PATH"
-else
-    echo "❌ Error: Could not find gurty and gurtca binaries in extracted files"
-    echo "Contents of current directory:"
-    find . -type f -executable 2>/dev/null || ls -la
-    exit 1
+# Try multiple methods to find and copy the binaries
+COPIED=false
+
+# Method 1: Look for binaries in current directory
+if [ -f "./gurty" ] && [ -f "./gurtca" ]; then
+    sudo cp ./gurty ./gurtca /home/gurted/bin/
+    COPIED=true
+    echo "✅ Method 1: Found binaries in current directory"
+fi
+
+# Method 2: Look for binaries in subdirectories
+if [ "$COPIED" = false ]; then
+    GURTY_PATH=$(find . -name "gurty" -type f 2>/dev/null | head -1 || true)
+    GURTCA_PATH=$(find . -name "gurtca" -type f 2>/dev/null | head -1 || true)
+    
+    if [ -n "$GURTY_PATH" ] && [ -n "$GURTCA_PATH" ]; then
+        sudo cp "$GURTY_PATH" "$GURTCA_PATH" /home/gurted/bin/
+        COPIED=true
+        echo "✅ Method 2: Found binaries at $GURTY_PATH, $GURTCA_PATH"
+    fi
+fi
+
+# Method 3: Look for any executable files with gurt in the name
+if [ "$COPIED" = false ]; then
+    GURTY_PATH=$(find . -name "*gurty*" -type f -executable 2>/dev/null | head -1 || true)
+    GURTCA_PATH=$(find . -name "*gurtca*" -type f -executable 2>/dev/null | head -1 || true)
+    
+    if [ -n "$GURTY_PATH" ] && [ -n "$GURTCA_PATH" ]; then
+        sudo cp "$GURTY_PATH" /home/gurted/bin/gurty
+        sudo cp "$GURTCA_PATH" /home/gurted/bin/gurtca
+        COPIED=true
+        echo "✅ Method 3: Found binaries at $GURTY_PATH, $GURTCA_PATH"
+    fi
+fi
+
+if [ "$COPIED" = false ]; then
+    echo "❌ Could not find gurty and gurtca binaries. Available files:"
+    ls -la
+    echo "Continuing anyway - you may need to manually install the binaries"
 fi
 
 sudo chown -R gurted:gurted /home/gurted/bin
-sudo chmod +x /home/gurted/bin/*
+sudo chmod +x /home/gurted/bin/* 2>/dev/null || true
 
-# Create symlinks in /usr/local/bin so commands are available system-wide
-sudo ln -sf /home/gurted/bin/gurty /usr/local/bin/gurty
-sudo ln -sf /home/gurted/bin/gurtca /usr/local/bin/gurtca
+# Create symlinks if binaries exist
+if [ -f "/home/gurted/bin/gurty" ]; then
+    sudo ln -sf /home/gurted/bin/gurty /usr/local/bin/gurty
+fi
+if [ -f "/home/gurted/bin/gurtca" ]; then
+    sudo ln -sf /home/gurted/bin/gurtca /usr/local/bin/gurtca
+fi
 
 # Create log directories
 sudo mkdir -p /var/log/gurty
