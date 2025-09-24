@@ -58,10 +58,6 @@ else
     fi
 fi
 
-# List all files to debug
-echo "📋 Current directory contents:"
-ls -la
-
 # Find the extracted directory
 EXTRACTED_DIR=$(tar -tzf gurted-tools-linux.tar.gz 2>/dev/null | head -1 | cut -f1 -d"/" | head -1 || echo "")
 
@@ -86,15 +82,45 @@ if [ "$COPIED" = false ]; then
     echo "Continuing setup - you may need to manually install binaries later"
 fi
 
+# Make sure binaries are executable and properly owned
 sudo chown -R gurted:gurted /home/gurted/bin
 sudo chmod +x /home/gurted/bin/* 2>/dev/null || true
 
-# Create symlinks if binaries exist
+# Create symlinks in /usr/local/bin (which should be in PATH)
 if [ -f "/home/gurted/bin/gurty" ]; then
     sudo ln -sf /home/gurted/bin/gurty /usr/local/bin/gurty
+    echo "✅ Created symlink for gurty"
 fi
 if [ -f "/home/gurted/bin/gurtca" ]; then
-    sudo ln -sf /home/gurted/bin/gurtca /usr/local/bin/gurtca
+    sudo ln -sf /home/gurted/bin/gurtca /usr/local/bin/gurtca  
+    echo "✅ Created symlink for gurtca"
+fi
+
+# Also add to gurted user's PATH by updating their .bashrc
+sudo -u gurted tee -a /home/gurted/.bashrc > /dev/null <<EOF
+
+# Add gurted binaries to PATH
+export PATH="/home/gurted/bin:\$PATH"
+EOF
+
+# Add to system-wide PATH
+echo 'export PATH="/home/gurted/bin:$PATH"' | sudo tee /etc/profile.d/gurted.sh > /dev/null
+sudo chmod +x /etc/profile.d/gurted.sh
+
+# Verify installations
+echo "🔍 Verifying installations..."
+if [ -f "/home/gurted/bin/gurty" ]; then
+    echo "✅ gurty binary exists at /home/gurted/bin/gurty"
+    ls -la /home/gurted/bin/gurty
+else
+    echo "❌ gurty binary not found"
+fi
+
+if [ -f "/usr/local/bin/gurty" ]; then
+    echo "✅ gurty symlink exists at /usr/local/bin/gurty"
+    ls -la /usr/local/bin/gurty
+else
+    echo "❌ gurty symlink not found"
 fi
 
 # Create log directories
@@ -246,6 +272,11 @@ sudo -u gurted tee /home/gurted/mysite/index.html > /dev/null <<EOF
 EOF
 
 echo "✅ Basic setup complete!"
+echo ""
+echo "🔄 To use gurty command, either:"
+echo "   • Run 'source /etc/profile.d/gurted.sh' to update PATH in current session"
+echo "   • Start a new shell session"
+echo "   • Or use full path: /home/gurted/bin/gurty"
 echo ""
 echo "Next steps:"
 echo "Continue following the guide at gurt://is-a-clank.er/docs/server-setup.html"
