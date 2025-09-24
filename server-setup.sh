@@ -34,25 +34,30 @@ LATEST_RELEASE=$(curl -s https://api.github.com/repos/phoenixbackrooms/gurted-un
 DOWNLOAD_URL="https://github.com/phoenixbackrooms/gurted-unofficial/releases/download/${LATEST_RELEASE}/gurted-tools-linux.tar.gz"
 echo "Downloading from: $DOWNLOAD_URL"
 wget -O gurted-tools-linux.tar.gz "$DOWNLOAD_URL"
+
+# Extract and find binaries more robustly
 tar -xzf gurted-tools-linux.tar.gz
 
-# Find the actual extracted directory and move binaries
-EXTRACTED_DIR=$(tar -tzf gurted-tools-linux.tar.gz | head -1 | cut -f1 -d"/")
-if [ -f "${EXTRACTED_DIR}/gurty" ] && [ -f "${EXTRACTED_DIR}/gurtca" ]; then
-    sudo cp "${EXTRACTED_DIR}/gurty" "${EXTRACTED_DIR}/gurtca" /home/gurted/bin/
-elif [ -f gurty ] && [ -f gurtca ]; then
-    sudo cp gurty gurtca /home/gurted/bin/
+# Find the binaries wherever they are in the extracted content
+GURTY_PATH=$(find . -name "gurty" -type f -executable 2>/dev/null | head -1)
+GURTCA_PATH=$(find . -name "gurtca" -type f -executable 2>/dev/null | head -1)
+
+if [ -n "$GURTY_PATH" ] && [ -n "$GURTCA_PATH" ]; then
+    sudo cp "$GURTY_PATH" "$GURTCA_PATH" /home/gurted/bin/
+    echo "✅ Found and installed binaries: $GURTY_PATH, $GURTCA_PATH"
 else
-    echo "Error: Could not find gurty and gurtca binaries in extracted files"
+    echo "❌ Error: Could not find gurty and gurtca binaries in extracted files"
     echo "Contents of current directory:"
-    ls -la
-    echo "Contents of extracted directory (if exists):"
-    ls -la "${EXTRACTED_DIR}" 2>/dev/null || echo "Directory ${EXTRACTED_DIR} does not exist"
+    find . -type f -executable 2>/dev/null || ls -la
     exit 1
 fi
 
 sudo chown -R gurted:gurted /home/gurted/bin
 sudo chmod +x /home/gurted/bin/*
+
+# Create symlinks in /usr/local/bin so commands are available system-wide
+sudo ln -sf /home/gurted/bin/gurty /usr/local/bin/gurty
+sudo ln -sf /home/gurted/bin/gurtca /usr/local/bin/gurtca
 
 # Create log directories
 sudo mkdir -p /var/log/gurty
