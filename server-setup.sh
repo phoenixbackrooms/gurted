@@ -14,7 +14,10 @@ sudo apt install -y curl ufw wget tar
 
 # Create gurted user and directories
 sudo useradd --system --create-home --shell /bin/bash gurted || true
-sudo mkdir -p /home/gurted/{bin,mysite,config}
+sudo mkdir -p /home/gurted/bin
+sudo mkdir -p /home/gurted/mysite
+sudo mkdir -p /home/gurted/config
+
 sudo chown -R gurted:gurted /home/gurted
 
 # Setup basic firewall
