@@ -35,53 +35,55 @@ DOWNLOAD_URL="https://github.com/phoenixbackrooms/gurted-unofficial/releases/dow
 echo "Downloading from: $DOWNLOAD_URL"
 wget -O gurted-tools-linux.tar.gz "$DOWNLOAD_URL"
 
-# Extract the tar file
+# Check if download was successful and file exists
+if [ ! -f "gurted-tools-linux.tar.gz" ]; then
+    echo "❌ Download failed - file not found"
+    exit 1
+fi
+
 echo "📦 Extracting files..."
-tar -xzf gurted-tools-linux.tar.gz
+# Try to extract, but handle errors gracefully
+if tar -xzf gurted-tools-linux.tar.gz 2>/dev/null; then
+    echo "✅ Extraction successful"
+else
+    echo "❌ Tar extraction failed, trying different methods..."
+    # Try without gzip
+    if tar -xf gurted-tools-linux.tar.gz 2>/dev/null; then
+        echo "✅ Extracted as uncompressed tar"
+    else
+        echo "❌ Could not extract archive. File info:"
+        file gurted-tools-linux.tar.gz
+        ls -la gurted-tools-linux.tar.gz
+        echo "Continuing setup without binaries..."
+    fi
+fi
 
 # List all files to debug
-echo "📋 Files extracted:"
-find . -name "*gurt*" -type f || true
+echo "📋 Current directory contents:"
+ls -la
 
-# Try multiple methods to find and copy the binaries
+# Find the extracted directory
+EXTRACTED_DIR=$(tar -tzf gurted-tools-linux.tar.gz 2>/dev/null | head -1 | cut -f1 -d"/" | head -1 || echo "")
+
+# Try to find and copy binaries
 COPIED=false
 
-# Method 1: Look for binaries in current directory
+# Method 1: Check if binaries are in current directory
 if [ -f "./gurty" ] && [ -f "./gurtca" ]; then
     sudo cp ./gurty ./gurtca /home/gurted/bin/
     COPIED=true
-    echo "✅ Method 1: Found binaries in current directory"
-fi
-
-# Method 2: Look for binaries in subdirectories
-if [ "$COPIED" = false ]; then
-    GURTY_PATH=$(find . -name "gurty" -type f 2>/dev/null | head -1 || true)
-    GURTCA_PATH=$(find . -name "gurtca" -type f 2>/dev/null | head -1 || true)
-    
-    if [ -n "$GURTY_PATH" ] && [ -n "$GURTCA_PATH" ]; then
-        sudo cp "$GURTY_PATH" "$GURTCA_PATH" /home/gurted/bin/
-        COPIED=true
-        echo "✅ Method 2: Found binaries at $GURTY_PATH, $GURTCA_PATH"
-    fi
-fi
-
-# Method 3: Look for any executable files with gurt in the name
-if [ "$COPIED" = false ]; then
-    GURTY_PATH=$(find . -name "*gurty*" -type f -executable 2>/dev/null | head -1 || true)
-    GURTCA_PATH=$(find . -name "*gurtca*" -type f -executable 2>/dev/null | head -1 || true)
-    
-    if [ -n "$GURTY_PATH" ] && [ -n "$GURTCA_PATH" ]; then
-        sudo cp "$GURTY_PATH" /home/gurted/bin/gurty
-        sudo cp "$GURTCA_PATH" /home/gurted/bin/gurtca
-        COPIED=true
-        echo "✅ Method 3: Found binaries at $GURTY_PATH, $GURTCA_PATH"
-    fi
+    echo "✅ Found binaries in current directory"
+elif [ -n "$EXTRACTED_DIR" ] && [ -f "${EXTRACTED_DIR}/gurty" ] && [ -f "${EXTRACTED_DIR}/gurtca" ]; then
+    sudo cp "${EXTRACTED_DIR}/gurty" "${EXTRACTED_DIR}/gurtca" /home/gurted/bin/
+    COPIED=true
+    echo "✅ Found binaries in extracted directory: $EXTRACTED_DIR"
 fi
 
 if [ "$COPIED" = false ]; then
-    echo "❌ Could not find gurty and gurtca binaries. Available files:"
-    ls -la
-    echo "Continuing anyway - you may need to manually install the binaries"
+    echo "⚠️  Could not find gurty and gurtca binaries"
+    echo "Available files:"
+    find . -name "*gurt*" -type f 2>/dev/null || echo "No files with 'gurt' in name found"
+    echo "Continuing setup - you may need to manually install binaries later"
 fi
 
 sudo chown -R gurted:gurted /home/gurted/bin
