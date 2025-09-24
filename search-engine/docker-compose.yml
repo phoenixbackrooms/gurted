@@ -1,0 +1,14 @@
+services:
+  search-engine:
+    build:
+      context: ..
+      dockerfile: search-engine/Dockerfile
+    container_name: gurted-search-engine
+    network_mode: host
+    environment:
+      RUST_LOG: info
+    volumes:
+      - ./config.toml:/app/config/config.toml:ro
+      - ./search_indexes:/app/search_indexes
+      - ./certs:/app/certs:ro
+    restart: unless-stopped
