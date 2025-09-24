@@ -33,8 +33,21 @@ echo "Downloading from: $DOWNLOAD_URL"
 wget -O gurted-tools-linux.tar.gz "$DOWNLOAD_URL"
 tar -xzf gurted-tools-linux.tar.gz
 
-# Move binaries to correct location
-sudo cp temp-tools-linux/gurty temp-tools-linux/gurtca /home/gurted/bin/
+# Find the actual extracted directory and move binaries
+EXTRACTED_DIR=$(tar -tzf gurted-tools-linux.tar.gz | head -1 | cut -f1 -d"/")
+if [ -f "${EXTRACTED_DIR}/gurty" ] && [ -f "${EXTRACTED_DIR}/gurtca" ]; then
+    sudo cp "${EXTRACTED_DIR}/gurty" "${EXTRACTED_DIR}/gurtca" /home/gurted/bin/
+elif [ -f gurty ] && [ -f gurtca ]; then
+    sudo cp gurty gurtca /home/gurted/bin/
+else
+    echo "Error: Could not find gurty and gurtca binaries in extracted files"
+    echo "Contents of current directory:"
+    ls -la
+    echo "Contents of extracted directory (if exists):"
+    ls -la "${EXTRACTED_DIR}" 2>/dev/null || echo "Directory ${EXTRACTED_DIR} does not exist"
+    exit 1
+fi
+
 sudo chown -R gurted:gurted /home/gurted/bin
 sudo chmod +x /home/gurted/bin/*
 
