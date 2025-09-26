@@ -4,12 +4,12 @@ const SETTINGS_FILE = "user://browser_settings.json"
 
 var settings_data = {
 	"startup_new_tab": true,
-	"startup_specific_page": false,
-	"startup_url": "",
+	"startup_specific_page": true,
+	"startup_url": "gurt://phoenix.clank/",
 	"search_engine_url": "gurt://search.web?q=",
 	"download_confirmation": true,
-	"dns_url": "135.125.163.131:4878",
-	"dns_fallback_url": "8.8.8.8:4878"
+	"dns_url": "104.168.74.86:4000",
+	"dns_fallback_url": "135.125.163.131:4878"
 }
 
 var _loaded = false
