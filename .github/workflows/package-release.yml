@@ -1,0 +1,251 @@
+name: Package Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag'
+        required: true
+        default: 'v0.1.0'
+      download_artifacts:
+        description: 'Download latest artifacts from main branch'
+        required: false
+        default: 'true'
+        type: boolean
+
+jobs:
+  package-release:
+    name: Package Release
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download GurtCA artifacts
+      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      uses: dawidd6/action-download-artifact@v6
+      with:
+        workflow: build-gurtca.yml
+        name_is_regexp: true
+        name: gurtca-.*
+        path: artifacts/
+        if_no_artifact_found: warn
+      continue-on-error: true
+
+    - name: Download Gurty artifacts
+      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      uses: dawidd6/action-download-artifact@v6
+      with:
+        workflow: build-gurty.yml
+        name_is_regexp: true
+        name: gurty-.*
+        path: artifacts/
+        if_no_artifact_found: warn
+      continue-on-error: true
+
+    - name: Download GDExtension artifacts
+      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      uses: dawidd6/action-download-artifact@v6
+      with:
+        workflow: build-gdextension.yml
+        name_is_regexp: true
+        name: gdextension-.*
+        path: artifacts/
+        if_no_artifact_found: warn
+      continue-on-error: true
+
+    - name: Download Flumi artifacts
+      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      uses: dawidd6/action-download-artifact@v6
+      with:
+        workflow: build-flumi.yml
+        name_is_regexp: true
+        name: flumi-.*
+        path: artifacts/
+        if_no_artifact_found: warn
+      continue-on-error: true
+
+    - name: List downloaded artifacts
+      shell: powershell
+      run: |
+        Write-Output "Downloaded artifacts:"
+        Get-ChildItem -Path artifacts -Recurse -File | Sort-Object FullName
+
+    - name: Download and setup UPX
+      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      shell: powershell
+      run: |
+        Invoke-WebRequest -Uri "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip" -OutFile "upx.zip"
+        Expand-Archive -Path "upx.zip" -DestinationPath "."
+
+    - name: Compress Windows Flumi binaries with UPX
+      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      shell: powershell
+      run: |
+        if (Test-Path "artifacts/flumi-windows") {
+          Write-Output "Compressing Windows Flumi binaries..."
+          
+          # Create build-scripts/Windows structure
+          New-Item -ItemType Directory -Path "build-scripts/Windows" -Force
+          Copy-Item "artifacts/flumi-windows/*" "build-scripts/Windows/" -Force
+          
+          # Run UPX compression
+          try {
+            & ".\upx-4.2.4-win64\upx.exe" --lzma --best build-scripts/Windows/*.exe build-scripts/Windows/*.dll
+            Write-Output "UPX compression completed successfully"
+          } catch {
+            Write-Output "UPX compression completed with warnings: $($_.Exception.Message)"
+          }
+          
+          # Copy compressed files back
+          Copy-Item "build-scripts/Windows/*" "artifacts/flumi-windows/" -Force
+        }
+
+    - name: Download and setup Inno Setup
+      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      shell: powershell
+      run: |
+        Invoke-WebRequest -Uri "https://files.jrsoftware.org/is/6/innosetup-6.5.3.exe" -OutFile "innosetup.exe"
+        Start-Process -FilePath ".\innosetup.exe" -ArgumentList "/VERYSILENT", "/NORESTART", "/DIR=C:\InnoSetup" -Wait
+        
+    - name: Build Windows installer
+      if: github.event.inputs.download_artifacts == 'true' || github.event_name == 'push'
+      shell: powershell
+      run: |
+        if (Test-Path "artifacts\flumi-windows") {
+          Write-Output "Building Windows installer..."
+
+          # Ensure the path relative to the .iss exists
+          New-Item -ItemType Directory -Path "flumi\build-scripts\Windows" -Force | Out-Null
+
+          # Copy files from artifacts into flumi\build-scripts\Windows (robust enumeration)
+          Get-ChildItem -Path "artifacts\flumi-windows" -File | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination "flumi\build-scripts\Windows" -Force
+          }
+
+          # Ensure installer output dir matches OutputDir=Windows\installer in .iss
+          New-Item -ItemType Directory -Path "flumi\build-scripts\Windows\installer" -Force | Out-Null
+
+          # Compile using .iss (paths resolved relative to flumi/build-scripts)
+          $issPath = Resolve-Path "flumi\build-scripts\flumi-installer.iss"
+          & "C:\InnoSetup\ISCC.exe" $issPath.Path
+
+          # Copy installer to artifacts
+          $built = Get-ChildItem "flumi\build-scripts\Windows\installer" -Filter "Flumi-Setup-*.exe" -ErrorAction SilentlyContinue
+          if ($built) {
+            Copy-Item $built.FullName "artifacts\flumi-windows" -Force
+            Write-Output "Installer created and copied successfully"
+          } else {
+            Write-Output "Warning: Installer was not created"
+          }
+        }
+    - name: Prepare release assets
+      shell: powershell
+      run: |
+        New-Item -ItemType Directory -Path "release-assets" -Force
+        
+        # Package Rust binaries (GurtCA + Gurty)
+        foreach ($platform in @("linux", "windows")) {
+          $tempDir = "temp-tools-$platform"
+          New-Item -ItemType Directory -Path $tempDir -Force
+          
+          # Copy GurtCA if available
+          if (Test-Path "artifacts/gurtca-$platform") {
+            Copy-Item "artifacts/gurtca-$platform/*" $tempDir -Force
+          }
+          
+          # Copy Gurty if available
+          if (Test-Path "artifacts/gurty-$platform") {
+            Copy-Item "artifacts/gurty-$platform/*" $tempDir -Force
+          }
+          
+          # Package if we have any files
+          $files = Get-ChildItem $tempDir -ErrorAction SilentlyContinue
+          if ($files.Count -gt 0) {
+            if ($platform -eq "windows") {
+              Compress-Archive -Path "$tempDir/*" -DestinationPath "release-assets/gurted-tools-$platform.zip" -Force
+            } else {
+              # For Linux files, we'll use 7zip if available, otherwise skip tar.gz creation on Windows
+              if (Get-Command "7z" -ErrorAction SilentlyContinue) {
+                & "7z" a -ttar "release-assets/gurted-tools-$platform.tar" "$tempDir/*"
+                & "7z" a -tgzip "release-assets/gurted-tools-$platform.tar.gz" "release-assets/gurted-tools-$platform.tar"
+                Remove-Item "release-assets/gurted-tools-$platform.tar" -Force
+              } else {
+                # Fallback to zip for Linux binaries too
+                Compress-Archive -Path "$tempDir/*" -DestinationPath "release-assets/gurted-tools-$platform.zip" -Force
+              }
+            }
+          }
+          
+          Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        
+        # Package Flumi builds
+        foreach ($platform in @("linux", "windows")) {
+          if (Test-Path "artifacts/flumi-$platform") {
+            Push-Location "artifacts/flumi-$platform"
+            
+            if ($platform -eq "windows") {
+              
+              # Copy installer separately if it exists
+              $installer = Get-ChildItem "Flumi-Setup-*.exe" -ErrorAction SilentlyContinue
+              if ($installer) {
+                Copy-Item $installer "../../release-assets/" -Force
+              }
+            } else {
+              if (Get-Command "7z" -ErrorAction SilentlyContinue) {
+                & "7z" a -ttar "../../release-assets/flumi-$platform.tar" "*"
+                & "7z" a -tgzip "../../release-assets/flumi-$platform.tar.gz" "../../release-assets/flumi-$platform.tar"
+                Remove-Item "../../release-assets/flumi-$platform.tar" -Force
+              } else {
+                Compress-Archive -Path "*" -DestinationPath "../../release-assets/flumi-$platform.zip" -Force
+              }
+            }
+            Pop-Location
+          }
+        }
+        
+
+    - name: Get release tag
+      id: get_tag
+      shell: powershell
+      run: |
+        if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+          echo "tag=${{ github.event.inputs.tag }}" >> $env:GITHUB_OUTPUT
+        } else {
+          $tag = "${{ github.ref }}" -replace "refs/tags/", ""
+          echo "tag=$tag" >> $env:GITHUB_OUTPUT
+        }
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.get_tag.outputs.tag }}
+        name: Gurted ${{ steps.get_tag.outputs.tag }}
+        body: |
+          ## Gurted Release ${{ steps.get_tag.outputs.tag }}
+
+          ### NOTICE: THESE BUILDS ARE NOT OFFICIAL AND MAY CONTAIN DIFFIRENCES FROM UPSTREAM.
+          This release includes:
+          - **GurtCA**: Certificate Authority for TLS certificates
+          - **Gurty**: CLI tool for managing GURT protocol servers  
+          - **Flumi**: The official browser for the GURT ecosystem
+          
+          ### Downloads
+          - `gurted-tools-*.zip`: Contains GurtCA and Gurty binaries
+          - `flumi-linux.*`: Contains the Flumi wayfinder application for Linux
+          - `Flumi-Setup-*.exe`: Windows installer for Flumi (recommended for Windows users)
+          
+          ### Platform Support
+          - Linux (x86_64)
+          - Windows (x86_64)
+          
+          For documentation and usage instructions, visit [docs.gurted.com](https://docs.gurted.com)
+        files: release-assets/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

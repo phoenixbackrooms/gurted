@@ -1,13 +1,67 @@
 extends Node
 
-const ClientPool = preload("res://Scripts/ClientPool.gd")
+static var gurt_clients: Dictionary = {}
+static var client_last_used: Dictionary = {}
+static var client_timeout_ms: int = 30000
 
 func _ready():
 	var timer = Timer.new()
 	timer.wait_time = 10.0
 	timer.autostart = true
-	timer.timeout.connect(ClientPool._cleanup_idle_clients)
+	timer.timeout.connect(_cleanup_idle_clients)
 	add_child(timer)
+
+func _cleanup_idle_clients():
+	var current_time = Time.get_ticks_msec()
+	var to_remove = []
+	
+	for domain in client_last_used:
+		if current_time - client_last_used[domain] > client_timeout_ms:
+			to_remove.append(domain)
+	
+	for domain in to_remove:
+		if gurt_clients.has(domain):
+			gurt_clients[domain].disconnect()
+			gurt_clients.erase(domain)
+		client_last_used.erase(domain)
+
+func get_or_create_gurt_client(domain: String) -> GurtProtocolClient:
+	_cleanup_idle_clients()
+	
+	if gurt_clients.has(domain):
+		client_last_used[domain] = Time.get_ticks_msec()
+		return gurt_clients[domain]
+	
+	var client = GurtProtocolClient.new()
+	
+	for ca_cert in CertificateManager.trusted_ca_certificates:
+		client.add_ca_certificate(ca_cert)
+	
+	# Try primary DNS server first
+	var primary_dns = SettingsManager.get_dns_url()
+	var dns_parts = primary_dns.split(":")
+	var primary_ip = dns_parts[0]
+	var primary_port = int(dns_parts[1]) if dns_parts.size() > 1 else 4878
+	
+	if client.create_client_with_dns(30, primary_ip, primary_port):
+		gurt_clients[domain] = client
+		client_last_used[domain] = Time.get_ticks_msec()
+		return client
+	
+	# If primary DNS fails, try fallback DNS
+	print("Primary DNS failed, trying fallback DNS...")
+	var fallback_dns = SettingsManager.get_dns_fallback_url()
+	var fallback_parts = fallback_dns.split(":")
+	var fallback_ip = fallback_parts[0]
+	var fallback_port = int(fallback_parts[1]) if fallback_parts.size() > 1 else 4878
+	
+	if client.create_client_with_dns(30, fallback_ip, fallback_port):
+		gurt_clients[domain] = client
+		client_last_used[domain] = Time.get_ticks_msec()
+		return client
+	
+	print("Both primary and fallback DNS servers failed")
+	return null
 
 func fetch_image(url: String) -> ImageTexture:
 	if url.is_empty():
@@ -179,36 +233,79 @@ func fetch_gurt_resource(url: String, as_binary: bool = false):
 	
 	var network_request = NetworkManager.start_request(gurt_url, "GET", false)
 	
-	var host_domain = ClientPool.extract_domain_from_url(gurt_url)
-
-	var client = ClientPool.get_or_create_gurt_client(host_domain)
-	if client == null:
-		NetworkManager.fail_request(network_request.id, "Failed to create GURT client")
-		return PackedByteArray() if as_binary else ""
+	var host_domain = gurt_url
+	if host_domain.begins_with("gurt://"):
+		host_domain = host_domain.substr(7)
+	var slash_pos = host_domain.find("/")
+	if slash_pos != -1:
+		host_domain = host_domain.substr(0, slash_pos)
 	
-	var response = client.request(gurt_url, {
-		"method": "GET",
-		"headers": {"Host": host_domain}
-	})
+	# Try primary DNS first
+	var client = get_or_create_gurt_client(host_domain)
+	if client != null:
+		var response = client.request(gurt_url, {
+			"method": "GET",
+			"headers": {"Host": host_domain}
+		})
+		
+		if response and response.is_success:
+			var response_headers = response.headers if response.headers else {}
+			var response_body = response.body
+			
+			if as_binary:
+				var size_info = "Binary data: " + str(response_body.size()) + " bytes"
+				NetworkManager.complete_request(network_request.id, response.status_code, "OK", response_headers, size_info, response_body)
+				return response_body
+			else:
+				var response_body_str = response_body.get_string_from_utf8()
+				NetworkManager.complete_request(network_request.id, response.status_code, "OK", response_headers, response_body_str)
+				return response_body_str
 	
-	if not response or not response.is_success:
-		var error_msg = "Failed to load GURT resource"
-		var status_code = 0
-		if response:
-			status_code = response.status_code
-			error_msg += ": " + str(response.status_code) + " " + response.status_message
-		NetworkManager.complete_request(network_request.id, status_code, error_msg, {}, "")
-		return PackedByteArray() if as_binary else ""
+	# If primary DNS failed, try fallback DNS
+	print("Primary DNS request failed, trying fallback DNS...")
 	
-	var response_headers = response.headers if response.headers else {}
+	# Clear the failed client from cache
+	if gurt_clients.has(host_domain):
+		gurt_clients[host_domain].disconnect()
+		gurt_clients.erase(host_domain)
+	client_last_used.erase(host_domain)
 	
-	var response_body = response.body
+	# Create new client with fallback DNS
+	var fallback_client = GurtProtocolClient.new()
 	
-	if as_binary:
-		var size_info = "Binary data: " + str(response_body.size()) + " bytes"
-		NetworkManager.complete_request(network_request.id, response.status_code, "OK", response_headers, size_info, response_body)
-		return response_body
-	else:
-		var response_body_str = response_body.get_string_from_utf8()
-		NetworkManager.complete_request(network_request.id, response.status_code, "OK", response_headers, response_body_str)
-		return response_body_str
+	for ca_cert in CertificateManager.trusted_ca_certificates:
+		fallback_client.add_ca_certificate(ca_cert)
+	
+	var fallback_dns = SettingsManager.get_dns_fallback_url()
+	var fallback_parts = fallback_dns.split(":")
+	var fallback_ip = fallback_parts[0]
+	var fallback_port = int(fallback_parts[1]) if fallback_parts.size() > 1 else 4878
+	
+	if fallback_client.create_client_with_dns(30, fallback_ip, fallback_port):
+		var fallback_response = fallback_client.request(gurt_url, {
+			"method": "GET",
+			"headers": {"Host": host_domain}
+		})
+		
+		if fallback_response and fallback_response.is_success:
+			# Cache the working fallback client
+			gurt_clients[host_domain] = fallback_client
+			client_last_used[host_domain] = Time.get_ticks_msec()
+			
+			var response_headers = fallback_response.headers if fallback_response.headers else {}
+			var response_body = fallback_response.body
+			
+			if as_binary:
+				var size_info = "Binary data: " + str(response_body.size()) + " bytes"
+				NetworkManager.complete_request(network_request.id, fallback_response.status_code, "OK", response_headers, size_info, response_body)
+				return response_body
+			else:
+				var response_body_str = response_body.get_string_from_utf8()
+				NetworkManager.complete_request(network_request.id, fallback_response.status_code, "OK", response_headers, response_body_str)
+				return response_body_str
+	
+	# Both DNS servers failed
+	var primary_dns = SettingsManager.get_dns_url()
+	var error_msg = "Failed to connect to both primary DNS (" + primary_dns + ") and fallback DNS (" + fallback_dns + ")"
+	NetworkManager.complete_request(network_request.id, 0, error_msg, {}, "")
+	return PackedByteArray() if as_binary else ""

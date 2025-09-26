@@ -167,7 +167,7 @@ layout_mode = 2
 [node name="BackButton" type="Button" parent="VBoxContainer/HBoxContainer"]
 custom_minimum_size = Vector2(45, 0)
 layout_mode = 2
-focus_mode = 1
+v
 theme_override_styles/focus = SubResource("StyleBoxEmpty_d1ilt")
 theme_override_styles/hover = SubResource("StyleBoxFlat_fdnlq")
 theme_override_styles/pressed = SubResource("StyleBoxFlat_d1ilt")

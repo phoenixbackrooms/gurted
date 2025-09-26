@@ -67,11 +67,15 @@ func _input(event):
 		close_tween.set_ease(Tween.EASE_IN)
 		close_tween.set_trans(Tween.TRANS_CUBIC)
 		
-		animate_tab_close(close_tween)
+		close_tween.parallel().tween_property(self, "custom_minimum_size:x", 0.0, 0.15)
+		close_tween.parallel().tween_property(self, "size:x", 0.0, 0.15)
+		close_tween.parallel().tween_property(button, "custom_minimum_size:x", 0.0, 0.15)
+		close_tween.parallel().tween_property(button, "size:x", 0.0, 0.15)
 		
 		await close_tween.finished
 		tab_closed.emit()
 		queue_free()
+
 
 func animate_tab_close(tween: Tween) -> void:
 	tween.parallel().tween_property(self, "custom_minimum_size:x", 0.0, 0.15)

@@ -1,0 +1,302 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag'
+        required: true
+        default: 'v0.1.0'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-rust:
+    name: Build Rust Components
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false  # This prevents cancellation of other builds when one fails
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            platform: linux
+            ext: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            platform: windows
+            ext: ".exe"
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Install OpenSSL (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y pkg-config libssl-dev
+
+    - name: Install OpenSSL (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        # Install vcpkg and OpenSSL
+        git clone https://github.com/Microsoft/vcpkg.git C:\vcpkg
+        cd C:\vcpkg
+        .\bootstrap-vcpkg.bat
+        .\vcpkg.exe integrate install
+        .\vcpkg.exe install openssl:x64-windows-static-md
+      env:
+        VCPKG_ROOT: C:\vcpkg
+
+    - name: Set OpenSSL environment variables (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: pwsh
+      run: |
+        echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+        echo "OPENSSL_DIR=C:\vcpkg\installed\x64-windows-static-md" >> $env:GITHUB_ENV
+
+    - name: Build GurtCA
+      run: |
+        cd protocol/gurtca
+        cargo build --release --target ${{ matrix.target }}
+
+    - name: Build Gurty
+      run: |
+        cd protocol/cli
+        cargo build --release --target ${{ matrix.target }}
+
+    - name: Build GDExtension
+      run: |
+        cd protocol/gdextension
+        cargo build --release --target ${{ matrix.target }}
+
+    - name: Prepare artifacts
+      shell: bash
+      run: |
+        mkdir -p artifacts/${{ matrix.platform }}
+        
+        # Copy binaries
+        cp protocol/gurtca/target/${{ matrix.target }}/release/gurtca${{ matrix.ext }} artifacts/${{ matrix.platform }}/
+        cp protocol/cli/target/${{ matrix.target }}/release/gurty${{ matrix.ext }} artifacts/${{ matrix.platform }}/
+        
+        # Copy GDExtension library
+        case "${{ matrix.platform }}" in
+          windows)
+            cp protocol/gdextension/target/${{ matrix.target }}/release/gurt_godot.dll artifacts/${{ matrix.platform }}/
+            ;;
+          linux)
+            cp protocol/gdextension/target/${{ matrix.target }}/release/libgurt_godot.so artifacts/${{ matrix.platform }}/
+            ;;
+        esac
+
+    - name: Upload Rust artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: rust-${{ matrix.platform }}
+        path: artifacts/${{ matrix.platform }}
+
+  build-flumi:
+    name: Build Flumi
+    runs-on: ${{ matrix.os }}
+    needs: build-rust
+    strategy:
+      fail-fast: false  # This prevents cancellation of other builds when one fails
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            godot-version: "4.4.1"
+            export-preset: "Linux"  # Fixed preset name
+          - os: windows-latest
+            platform: windows
+            godot-version: "4.4.1"
+            export-preset: "Windows Desktop"  # Confirmed preset name
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download Rust artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: rust-${{ matrix.platform }}
+        path: rust-artifacts
+
+    - name: Setup Godot
+      uses: chickensoft-games/setup-godot@v2.3.0
+      with:
+        version: ${{ matrix.godot-version }}
+        include-templates: true
+
+    - name: Prepare GDExtension addon
+      shell: bash
+      run: |
+        mkdir -p flumi/addons/gurt-protocol/bin/${{ matrix.platform }}
+        
+        # Copy GDExtension files
+        cp protocol/gdextension/gurt_godot.gdextension flumi/addons/gurt-protocol/
+        cp protocol/gdextension/plugin.cfg flumi/addons/gurt-protocol/
+        cp protocol/gdextension/plugin.gd flumi/addons/gurt-protocol/
+        
+        # Copy the built library
+        case "${{ matrix.platform }}" in
+          windows)
+            cp rust-artifacts/gurt_godot.dll flumi/addons/gurt-protocol/bin/${{ matrix.platform }}/
+            ;;
+          linux)
+            cp rust-artifacts/libgurt_godot.so flumi/addons/gurt-protocol/bin/${{ matrix.platform }}/
+            ;;
+        esac
+
+    - name: Import Godot project
+      run: |
+        cd flumi
+        godot --headless --import
+
+    - name: Verify export presets
+      shell: bash
+      run: |
+        cd flumi
+        echo "Available export presets:"
+        if [ -f export_presets.cfg ]; then
+          grep -E '^\[preset\.' export_presets.cfg || echo "No presets found in config"
+        else
+          echo "export_presets.cfg not found"
+        fi
+
+    - name: Export Flumi
+      shell: bash
+      run: |
+        cd flumi
+        mkdir -p ../flumi-builds/${{ matrix.platform }}
+        
+        # Use the correct export preset names and add error handling
+        case "${{ matrix.platform }}" in
+          windows)
+            echo "Exporting for Windows..."
+            godot --headless --export-release "${{ matrix.export-preset }}" ../flumi-builds/${{ matrix.platform }}/Flumi.exe --verbose || {
+              echo "Export failed with exit code $?"
+              echo "Trying without --verbose flag..."
+              godot --headless --export-release "${{ matrix.export-preset }}" ../flumi-builds/${{ matrix.platform }}/Flumi.exe
+            }
+            ;;
+          linux)
+            echo "Exporting for Linux..."
+            godot --headless --export-release "${{ matrix.export-preset }}" ../flumi-builds/${{ matrix.platform }}/Flumi --verbose || {
+              echo "Export failed with exit code $?"
+              echo "Trying without --verbose flag..."
+              godot --headless --export-release "${{ matrix.export-preset }}" ../flumi-builds/${{ matrix.platform }}/Flumi
+            }
+            ;;
+        esac
+        
+        # Verify the export was successful
+        if [ -f "../flumi-builds/${{ matrix.platform }}/Flumi${{ matrix.platform == 'windows' && '.exe' || '' }}" ]; then
+          echo "Export successful!"
+          ls -la ../flumi-builds/${{ matrix.platform }}/
+        else
+          echo "Export failed - no output file found"
+          exit 1
+        fi
+
+    - name: Upload Flumi artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: flumi-${{ matrix.platform }}
+        path: flumi-builds/${{ matrix.platform }}
+
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [build-rust, build-flumi]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p release-assets
+        
+        # Package Rust binaries
+        for platform in linux windows; do
+          if [ -d "rust-$platform" ]; then
+            cd "rust-$platform"
+            if [ "$platform" = "windows" ]; then
+              zip -r "../release-assets/gurted-tools-$platform.zip" .
+            else
+              tar -czf "../release-assets/gurted-tools-$platform.tar.gz" .
+            fi
+            cd ..
+          fi
+        done
+        
+        # Package Flumi builds
+        for platform in linux windows; do
+          if [ -d "flumi-$platform" ]; then
+            cd "flumi-$platform"
+            if [ "$platform" = "windows" ]; then
+              zip -r "../release-assets/flumi-$platform.zip" .
+            else
+              tar -czf "../release-assets/flumi-$platform.tar.gz" .
+            fi
+            cd ..
+          fi
+        done
+
+    - name: Get release tag
+      id: get_tag
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+        else
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.get_tag.outputs.tag }}
+        name: Gurted ${{ steps.get_tag.outputs.tag }}
+        body: |
+          ## Gurted Release ${{ steps.get_tag.outputs.tag }}
+          
+          This release includes:
+          - **GurtCA**: Certificate Authority for TLS certificates
+          - **Gurty**: CLI tool for managing GURT protocol servers  
+          - **Flumi**: The official wayfinder (browser) for the GURT ecosystem
+          
+          ### Downloads
+          - `gurted-tools-*.zip/tar.gz`: Contains GurtCA and Gurty binaries
+          - `flumi-*.zip/tar.gz`: Contains the Flumi wayfinder application
+          
+          ### Platform Support
+          - Linux (x86_64)
+          - Windows (x86_64)
+          
+          For documentation and usage instructions, visit [docs.gurted.com](https://docs.gurted.com)
+        files: release-assets/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

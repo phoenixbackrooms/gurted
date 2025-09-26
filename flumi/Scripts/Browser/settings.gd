@@ -33,6 +33,7 @@ const SETTINGS_FILE = "user://browser_settings.json"
 
 # Settings controls - Advanced
 @onready var dns_input: LineEdit = $HSplitContainer/Content/ScrollContainer/ContentStack/AdvancedPanel/DNSSection/VBoxContainer/HBoxContainer/DNSInput
+@onready var dns_fallback_input: LineEdit = $HSplitContainer/Content/ScrollContainer/ContentStack/AdvancedPanel/DNSSection/VBoxContainer/HBoxContainer2/DNSFallbackInput
 
 @onready var version_label: Label = $HSplitContainer/Content/ScrollContainer/ContentStack/AboutPanel/AboutSection/VBoxContainer/VersionLabel
 
@@ -59,6 +60,7 @@ func _ready():
 	search_input.text_changed.connect(_on_search_engine_changed)
 	download_confirm_checkbox.toggled.connect(_on_download_confirmation_changed)
 	dns_input.text_changed.connect(_on_dns_changed)
+	dns_fallback_input.text_changed.connect(_on_dns_fallback_changed)
 	
 	clear_history_button.pressed.connect(_on_clear_history_pressed)
 	clear_cookies_button.pressed.connect(_on_clear_cookies_pressed)
@@ -121,6 +123,9 @@ func _on_download_confirmation_changed(enabled: bool):
 func _on_dns_changed(new_dns: String):
 	SettingsManager.set_dns_url(new_dns)
 
+func _on_dns_fallback_changed(new_dns: String):
+	SettingsManager.set_dns_fallback_url(new_dns)
+
 func _on_clear_history_pressed():
 	BrowserHistory.clear_all()
 
@@ -145,3 +150,4 @@ func apply_settings_to_ui():
 	search_input.text = SettingsManager.get_search_engine_url()
 	download_confirm_checkbox.button_pressed = SettingsManager.get_download_confirmation()
 	dns_input.text = SettingsManager.get_dns_url()
+	dns_fallback_input.text = SettingsManager.get_dns_fallback_url()

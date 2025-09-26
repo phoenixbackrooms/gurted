@@ -17,6 +17,7 @@ class EventSubscription:
 	var wrapper_func: Callable
 
 var dom_parser: HTMLParser
+var associated_tab: Tab = null  # The tab this LuaAPI belongs to
 var event_subscriptions: Dictionary = {}
 var next_subscription_id: int = 1
 var next_callback_ref: int = 1
@@ -446,6 +447,10 @@ func _execute_input_event_callback(subscription: EventSubscription, event_data: 
 
 # Global input processing
 func _input(event: InputEvent) -> void:
+	# Only process events if this LuaAPI belongs to the active tab
+	if not _is_tab_active():
+		return
+		
 	if event is InputEventKey:
 		var key_event = event as InputEventKey
 		for subscription_id in event_subscriptions:
@@ -545,6 +550,25 @@ func _handle_mousemove_event(mouse_event: InputEventMouseMotion, subscription: E
 		"deltaY": mouse_event.relative.y
 	}
 	_execute_lua_callback(subscription, [mouse_info])
+
+# Check if this LuaAPI's associated tab is currently active
+func _is_tab_active() -> bool:
+	if not associated_tab:
+		return true  # If no tab association, allow events (fallback behavior)
+	
+	var main_scene = Engine.get_main_loop().current_scene
+	if main_scene and main_scene.has_method("get_active_tab"):
+		var active_tab = main_scene.get_active_tab()
+		return active_tab == associated_tab
+	
+	return true  # Fallback to allowing events if we can't determine active tab
+
+# Trigger focus events for tab switching (focusin/focusout on body)
+func _trigger_tab_focus_event(event_name: String) -> void:
+	for subscription_id in event_subscriptions:
+		var subscription = event_subscriptions[subscription_id]
+		if subscription.element_id == "body" and subscription.event_name == event_name:
+			_execute_lua_callback(subscription, [{}])
 
 func _get_body_container() -> Control:
 	# Try to get body from DOM registry first

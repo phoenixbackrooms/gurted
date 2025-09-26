@@ -14,7 +14,7 @@ crate-type = ["cdylib"]
 [dependencies]
 gurtlib = { path = "../library" }
 
-godot = { version = "0.1", features = ["experimental-threads"] }
+godot = "0.1"
 
 tokio = { version = "1.0", features = ["rt"] }
 url = "2.5"
