@@ -48,20 +48,24 @@ var connection_status: String = "" # "connecting", "open", "closing", "closed"
 var websocket_messages: Array[WebSocketMessage] = []
 
 class WebSocketMessage:
-	var timestamp: float
+	var hour: int
+	var minute: int
+	var second: int
 	var direction: String # "sent" or "received"
 	var content: String
 	var size: int
-	
+
 	func _init(dir: String, msg: String):
-		timestamp = Time.get_ticks_msec()
+		var local_time = Time.get_datetime_dict_from_system(false)
+		hour = local_time.hour
+		minute = local_time.minute
+		second = local_time.second
 		direction = dir
 		content = msg
 		size = msg.length()
-	
+
 	func get_formatted_time() -> String:
-		var time_obj = Time.get_datetime_dict_from_unix_time(timestamp / 1000.0)
-		return "%02d:%02d:%02d.%03d" % [time_obj.hour, time_obj.minute, time_obj.second, int(timestamp) % 1000]
+		return "%02d:%02d:%02d" % [hour, minute, second]
 
 func _init(request_url: String = "", request_method: String = "GET"):
 	id = generate_id()
@@ -88,11 +92,7 @@ func extract_name_from_url(request_url: String) -> String:
 		if not websocket_event_type.is_empty():
 			match websocket_event_type:
 				"connection":
-					var message_count = websocket_messages.size()
-					if message_count > 0:
-						return "WebSocket (" + str(message_count) + " messages)"
-					else:
-						return "WebSocket Connection"
+					return "WebSocket"
 				"close":
 					return "WebSocket Close"
 				"error":
@@ -253,8 +253,6 @@ static func create_websocket_connection(ws_url: String, ws_id: String) -> Networ
 func add_websocket_message(direction: String, message: String):
 	var ws_message = WebSocketMessage.new(direction, message)
 	websocket_messages.append(ws_message)
-	
-	name = extract_name_from_url(url)
 	
 	var total_message_size = 0
 	for msg in websocket_messages:

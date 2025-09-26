@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="Flumi"
-config/version="1.0.1"
+config/version="1.0.3"
 run/main_scene="uid://bytm7bt2s4ak8"
 config/use_custom_user_dir=true
 config/features=PackedStringArray("4.4", "Forward Plus")

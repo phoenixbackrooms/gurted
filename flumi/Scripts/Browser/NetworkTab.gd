@@ -390,36 +390,44 @@ func update_messages_tab(request: NetworkRequest):
 	
 	var search_container = HBoxContainer.new()
 	search_container.add_theme_constant_override("separation", 8)
-	
-	var search_label = Label.new()
-	search_label.text = "Search:"
-	search_label.add_theme_font_size_override("font_size", 11)
-	search_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7, 1.0))
-	search_container.add_child(search_label)
-	
+
 	var search_input = LineEdit.new()
-	search_input.placeholder_text = "Filter messages..."
-	search_input.add_theme_font_size_override("font_size", 11)
-	search_input.custom_minimum_size.x = 200
-	search_input.custom_minimum_size.y = 24
+	search_input.placeholder_text = "Filter"
+	search_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var focus_style = StyleBoxFlat.new()
+	focus_style.content_margin_left = 16.0
+	focus_style.content_margin_right = 8.0
+	focus_style.bg_color = Color(0.168627, 0.168627, 0.168627, 1)
+	focus_style.border_width_left = 1
+	focus_style.border_width_top = 1
+	focus_style.border_width_right = 1
+	focus_style.border_width_bottom = 1
+	focus_style.border_color = Color(0.247059, 0.466667, 0.807843, 1)
+	focus_style.corner_radius_top_left = 15
+	focus_style.corner_radius_top_right = 15
+	focus_style.corner_radius_bottom_right = 15
+	focus_style.corner_radius_bottom_left = 15
+	search_input.add_theme_stylebox_override("focus", focus_style)
+
+	var normal_style = StyleBoxFlat.new()
+	normal_style.content_margin_left = 16.0
+	normal_style.content_margin_right = 8.0
+	normal_style.bg_color = Color(0.168627, 0.168627, 0.168627, 1)
+	normal_style.corner_radius_top_left = 15
+	normal_style.corner_radius_top_right = 15
+	normal_style.corner_radius_bottom_right = 15
+	normal_style.corner_radius_bottom_left = 15
+	search_input.add_theme_stylebox_override("normal", normal_style)
+
 	search_container.add_child(search_input)
 	
-	var clear_button = Button.new()
-	clear_button.text = "Clear"
-	clear_button.add_theme_font_size_override("font_size", 10)
-	clear_button.custom_minimum_size.y = 24
-	search_container.add_child(clear_button)
-	
 	header_container.add_child(search_container)
-	
-	var header = Label.new()
-	header.text = str(request.websocket_messages.size()) + " messages"
-	header.add_theme_font_size_override("font_size", 13)
-	header.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7, 1.0))
-	header.custom_minimum_size.y = 20
-	header.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	header_container.add_child(header)
-	
+
+	var spacer = Control.new()
+	spacer.custom_minimum_size.y = 8
+	header_container.add_child(spacer)
+
 	messages_container.add_child(header_container)
 	
 	var message_rows: Array[Control] = []
@@ -427,38 +435,35 @@ func update_messages_tab(request: NetworkRequest):
 	
 	var update_search = func():
 		var filter_text = search_input.text.to_lower()
-		var visible_count = 0
-		
+
 		for row_index in range(message_rows.size()):
 			var row = message_rows[row_index]
 			var message = request.websocket_messages[row_index]
 			var should_show = filter_text.is_empty() or message.content.to_lower().contains(filter_text)
 			row.visible = should_show
-			if should_show:
-				visible_count += 1
-		
-		if filter_text.is_empty():
-			header.text = str(request.websocket_messages.size()) + " messages"
-		else:
-			header.text = str(visible_count) + " of " + str(request.websocket_messages.size()) + " messages"
 	
 	search_input.text_changed.connect(func(_text): update_search.call())
-	clear_button.pressed.connect(func(): 
-		search_input.text = ""
-		update_search.call()
-	)
 	
 	for i in range(request.websocket_messages.size()):
 		var message = request.websocket_messages[i]
 		
 		var message_panel = PanelContainer.new()
-		message_panel.custom_minimum_size.y = 24
+		message_panel.custom_minimum_size.y = 32
+
+		var button = Button.new()
+		button.flat = true
+		button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		button.focus_mode = Control.FOCUS_NONE
+
+		button.anchors_preset = Control.PRESET_FULL_RECT
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		
 		var panel_style = StyleBoxFlat.new()
 		if message.direction == "sent":
 			panel_style.bg_color = Color(0.2, 0.3, 0.5, 0.3)
 		else:
-			panel_style.bg_color = Color(0.2, 0.5, 0.3, 0.3)
+			panel_style.bg_color = Color(0.0, 0.0, 0.0, 0.0)
 		
 		panel_style.content_margin_left = 6
 		panel_style.content_margin_right = 6
@@ -471,10 +476,10 @@ func update_messages_tab(request: NetworkRequest):
 		
 		var direction_label = Label.new()
 		var direction_icon = "↑" if message.direction == "sent" else "↓"
-		var direction_color = Color(0.7, 0.9, 1.0) if message.direction == "sent" else Color(0.7, 1.0, 0.9)
+		var direction_color = Color(0.7, 0.9, 1.0) if message.direction == "sent" else Color(1.0, 0.7, 0.7)
 		
 		direction_label.text = direction_icon
-		direction_label.add_theme_font_size_override("font_size", 12)
+		direction_label.add_theme_font_size_override("font_size", 16)
 		direction_label.add_theme_color_override("font_color", direction_color)
 		direction_label.custom_minimum_size.x = 16
 		direction_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -482,7 +487,7 @@ func update_messages_tab(request: NetworkRequest):
 		
 		var timestamp_label = Label.new()
 		timestamp_label.text = message.get_formatted_time()
-		timestamp_label.add_theme_font_size_override("font_size", 10)
+		timestamp_label.add_theme_font_size_override("font_size", 14)
 		timestamp_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6, 1.0))
 		timestamp_label.custom_minimum_size.x = 80
 		message_row.add_child(timestamp_label)
@@ -494,7 +499,7 @@ func update_messages_tab(request: NetworkRequest):
 		content_text = content_text.replace("\n", " ").replace("\r", " ")
 		
 		content_label.text = content_text
-		content_label.add_theme_font_size_override("font_size", 11)
+		content_label.add_theme_font_size_override("font_size", 16)
 		content_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 1.0))
 		content_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		content_label.clip_contents = true
@@ -503,13 +508,17 @@ func update_messages_tab(request: NetworkRequest):
 		
 		var size_label = Label.new()
 		size_label.text = str(message.size) + "b"
-		size_label.add_theme_font_size_override("font_size", 10)
+		size_label.add_theme_font_size_override("font_size", 14)
 		size_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6, 1.0))
 		size_label.custom_minimum_size.x = 40
 		size_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		message_row.add_child(size_label)
 		
+		button.pressed.connect(func(): DisplayServer.clipboard_set(message.content))
+
 		message_panel.add_child(message_row)
+		message_panel.add_child(button)
+
 		messages_container.add_child(message_panel)
 		message_rows.append(message_panel)
 	

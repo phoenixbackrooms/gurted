@@ -429,7 +429,7 @@ func _on_search_focus_exited() -> void:
 	if not current_domain.is_empty():
 		var display_text = current_domain
 		if display_text.begins_with("gurt://"):
-			display_text = display_text.substr(7)
+			display_text = display_text.right(-7)
 		elif display_text.begins_with("file://"):
 			display_text = URLUtils.file_url_to_path(display_text)
 		search_bar.text = display_text
@@ -662,7 +662,7 @@ func render_content(html_bytes: PackedByteArray, target_tab: Tab = null) -> void
 			var base_url_for_scripts = current_domain
 			var query_pos = base_url_for_scripts.find("?")
 			if query_pos != -1:
-				base_url_for_scripts = base_url_for_scripts.substr(0, query_pos)
+				base_url_for_scripts = base_url_for_scripts.left(query_pos)
 			await parser.process_external_scripts(lua_api, null, base_url_for_scripts)
 		await _yield_for_ui()
 	
@@ -1066,7 +1066,7 @@ func update_search_bar_from_current_domain() -> void:
 	if not search_bar.has_focus() and not current_domain.is_empty():
 		var display_text = current_domain
 		if display_text.begins_with("gurt://"):
-			display_text = display_text.substr(7)
+			display_text = display_text.right(-7)
 		elif display_text.begins_with("file://"):
 			display_text = URLUtils.file_url_to_path(display_text)
 		search_bar.text = display_text
@@ -1107,7 +1107,7 @@ func add_to_history(url: String, tab: Tab, add_to_navigation: bool = true):
 	
 	var clean_url = url
 	if clean_url.begins_with("gurt://"):
-		clean_url = clean_url.substr(7)
+		clean_url = clean_url.right(-7)
 	
 	BrowserHistory.add_entry(clean_url, title, icon_url)
 	update_navigation_buttons()
